@@ -155,7 +155,7 @@ export function SettingsModal({ settings, onChange, onReset, onClose }: Settings
 
         <section className="install-card" aria-label="Install on iPad Home Screen">
           <div className="install-card__head">
-            <img className="install-card__app" src="/icons/apple-touch-icon.png" alt="" width={52} height={52} />
+            <img className="install-card__app" src="./icons/apple-touch-icon.png" alt="" width={52} height={52} />
             <div>
               <h3 className="install-card__title">Install on iPad Home Screen</h3>
               <p className="install-card__sub">

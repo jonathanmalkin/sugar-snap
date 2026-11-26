@@ -6,7 +6,7 @@
  * locks, booster reticle, particles, flash.
  */
 import type { BoosterType, Candy, Cell, ChapterDef, GridPos } from '../engine/types';
-import { CandySpriteAtlas, GOLD, makeCanvas, roundRectPath, withAlpha } from './candySprites';
+import { CandySpriteAtlas, GOLD, candyColorHex, makeCanvas, roundRectPath, withAlpha } from './candySprites';
 import type { ParticleSystem } from './particles';
 
 type Ctx = CanvasRenderingContext2D;
@@ -77,6 +77,15 @@ export interface BoardLayout {
 }
 
 const DEFAULT_TRAY = '#c98a4b';
+/** Extra cells of space around the grid (both sides together) for frame + shadow. */
+const TRAY_MARGIN = 1.36;
+/** How far the outer frame extends past the playable cells, in cells. */
+const FRAME_EXPAND = 0.33;
+/** Seconds between diagonal glass-glint sweeps. */
+const GLINT_PERIOD = 5.5;
+/** Per-frame budget for streaming queued sprite bakes, in ms. */
+const IDLE_BAKE_MS = 3;
+const BOMB_CAUSTICS = ['#ff6fa8', '#ffd45c', '#6fe3ff', '#b98cff', '#7dffb0'];
 
 export class BoardRenderer {
   readonly atlas: CandySpriteAtlas;
@@ -97,6 +106,7 @@ export class BoardRenderer {
   private chapter: ChapterDef | null = null;
   private staticLayer: HTMLCanvasElement | null = null;
   private staticKey = '';
+  private visBuf: CandyVisual[] = [];
 
   constructor(canvas: HTMLCanvasElement, atlas?: CandySpriteAtlas) {
     this.canvas = canvas;
@@ -119,8 +129,9 @@ export class BoardRenderer {
     const bh = Math.round(h * dpr);
     if (this.canvas.width !== bw) this.canvas.width = bw;
     if (this.canvas.height !== bh) this.canvas.height = bh;
-    // Leave room for the tray frame (~0.45 cell on each side).
-    const cs = Math.max(8, Math.floor(Math.min(w / (cols + 0.95), h / (rows + 0.95)) * dpr) / dpr);
+    // Leave room for the tray frame (~0.33 cell) plus a feathered shadow that
+    // fades out well before the canvas edge (~0.68 cell on each side in total).
+    const cs = Math.max(8, Math.floor(Math.min(w / (cols + TRAY_MARGIN), h / (rows + TRAY_MARGIN)) * dpr) / dpr);
     const boardW = cs * cols;
     const boardH = cs * rows;
     this.layout = {
@@ -278,48 +289,102 @@ export class BoardRenderer {
     const trayTint = this.chapter?.trayTint || DEFAULT_TRAY;
     const top = oy - cs * 0.5;
     const bottom = oy + L.boardH + cs * 0.5;
+    const left = ox - cs * 0.5;
+    const right = ox + L.boardW + cs * 0.5;
 
-    // 1. Soft ambient drop shadow under the whole tray.
-    const frameMask = unionMask(cs * 0.36, cs * 0.5);
-    // Shadow only: draw the mask off-canvas and offset its shadow back into view.
-    octx.save();
-    octx.shadowColor = 'rgba(55, 15, 40, 0.45)';
-    octx.shadowBlur = cs * 0.55 * dpr;
-    octx.shadowOffsetX = W + 64;
-    octx.shadowOffsetY = cs * 0.2 * dpr;
-    octx.drawImage(frameMask, -W - 64, 0);
-    octx.restore();
+    // 1. Feathered ambient shadow that melts into the stage. It is sized to the
+    //    free space around the frame and edge-faded, so the canvas rectangle
+    //    never shows as a square cut-off.
+    const frameMask = unionMask(cs * FRAME_EXPAND, cs * 0.5);
+    const free = Math.max(2, Math.min(ox, oy, L.viewW - ox - L.boardW, L.viewH - oy - L.boardH) - cs * FRAME_EXPAND);
+    const [shadow, sctx] = makeCanvas(W, H);
+    const castShadow = (color: string, blur: number, offY: number) => {
+      // Shadow only: draw the mask off-canvas and offset its shadow back into view.
+      sctx.save();
+      sctx.shadowColor = color;
+      sctx.shadowBlur = blur * dpr;
+      sctx.shadowOffsetX = W + 64;
+      sctx.shadowOffsetY = offY * dpr;
+      sctx.drawImage(frameMask, -W - 64, 0);
+      sctx.restore();
+    };
+    castShadow('rgba(64, 18, 52, 0.30)', Math.min(cs * 0.5, free * 0.8), Math.min(cs * 0.14, free * 0.25));
+    castShadow('rgba(80, 24, 40, 0.30)', cs * 0.09, cs * 0.045);
+    const feather = Math.max(3, free * 0.45) * dpr;
+    const [fade, fctx] = makeCanvas(W, H);
+    fctx.shadowColor = '#000';
+    fctx.shadowBlur = feather;
+    fctx.shadowOffsetX = W + 64;
+    fctx.fillStyle = '#000';
+    fctx.fillRect(-W - 64 + feather, feather, W - feather * 2, H - feather * 2);
+    sctx.globalCompositeOperation = 'destination-in';
+    sctx.drawImage(fade, 0, 0);
+    octx.drawImage(shadow, 0, 0);
 
-    // 2. Caramel-wood frame tinted by chapter.
-    const frame = tinted(frameMask, (c) => {
+    // 2. Caramel-gold bead rim: polished metal bands catching the studio light.
+    const rim = tinted(frameMask, (c) => {
+      // Polished caramel-gold, warmed only lightly by the chapter tint.
+      const g = c.createLinearGradient(0, top, 0, bottom);
+      g.addColorStop(0, '#fff3c4');
+      g.addColorStop(0.06, '#ffd36e');
+      g.addColorStop(0.2, '#c2852a');
+      g.addColorStop(0.48, '#ffe09a');
+      g.addColorStop(0.76, '#c98d33');
+      g.addColorStop(1, '#7a4710');
+      c.fillStyle = g;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+      c.globalCompositeOperation = 'multiply';
+      c.globalAlpha = 0.22;
       c.fillStyle = trayTint;
       c.fillRect(0, 0, L.viewW, L.viewH);
-      const sheen = c.createLinearGradient(0, top, 0, bottom);
-      sheen.addColorStop(0, 'rgba(255,240,215,0.5)');
-      sheen.addColorStop(0.18, 'rgba(255,220,170,0.12)');
-      sheen.addColorStop(0.7, 'rgba(90,40,10,0.08)');
-      sheen.addColorStop(1, 'rgba(60,20,5,0.35)');
-      c.fillStyle = sheen;
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = 'source-over';
+      const sw = c.createLinearGradient(left, top, right, bottom);
+      sw.addColorStop(0, 'rgba(255,255,255,0.45)');
+      sw.addColorStop(0.18, 'rgba(255,255,255,0)');
+      sw.addColorStop(0.62, 'rgba(255,255,255,0)');
+      sw.addColorStop(0.7, 'rgba(255,250,230,0.22)');
+      sw.addColorStop(0.78, 'rgba(255,255,255,0)');
+      c.fillStyle = sw;
       c.fillRect(0, 0, L.viewW, L.viewH);
-      // Wood grain.
-      c.lineWidth = Math.max(1, cs * 0.025);
-      for (let i = 0; i < 44; i++) {
-        const y0 = top + (i / 44) * (bottom - top);
-        c.strokeStyle = i % 3 === 0 ? 'rgba(110,50,15,0.12)' : 'rgba(255,230,190,0.07)';
-        c.beginPath();
-        for (let x = ox - cs; x <= ox + L.boardW + cs; x += cs * 0.25) {
-          const y = y0 + Math.sin(x / (cs * 1.3) + i * 1.7) * cs * 0.06 + Math.sin(x / (cs * 0.37) + i) * cs * 0.015;
-          if (x === ox - cs) c.moveTo(x, y);
-          else c.lineTo(x, y);
-        }
-        c.stroke();
-      }
     });
-    innerShade(frame, frameMask, 'rgba(255,245,225,0.85)', cs * 0.06, cs * 0.05);
-    innerShade(frame, frameMask, 'rgba(70,25,5,0.45)', cs * 0.12, -cs * 0.07);
-    octx.drawImage(frame, 0, 0);
+    innerShade(rim, frameMask, 'rgba(255,250,228,0.95)', cs * 0.035, cs * 0.03);
+    innerShade(rim, frameMask, 'rgba(70,30,0,0.55)', cs * 0.06, -cs * 0.04);
+    octx.drawImage(rim, 0, 0);
 
-    // 3. Frosted porcelain lip.
+    // 3. Glazed caramel porcelain body inside the gold bead.
+    const bodyMask = unionMask(cs * (FRAME_EXPAND - 0.055), cs * 0.44);
+    const body = tinted(bodyMask, (c) => {
+      c.fillStyle = trayTint;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+      const glaze = c.createLinearGradient(0, top, 0, bottom);
+      glaze.addColorStop(0, 'rgba(255,244,222,0.62)');
+      glaze.addColorStop(0.12, 'rgba(255,226,180,0.18)');
+      glaze.addColorStop(0.6, 'rgba(120,55,15,0.06)');
+      glaze.addColorStop(1, 'rgba(70,25,5,0.4)');
+      c.fillStyle = glaze;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+      // Softbox reflections gliding across the glaze.
+      c.globalCompositeOperation = 'screen';
+      const win = c.createLinearGradient(left, top, left + (right - left) * 0.55, top + (bottom - top) * 0.55);
+      win.addColorStop(0, 'rgba(255,255,255,0.5)');
+      win.addColorStop(0.28, 'rgba(255,255,255,0.08)');
+      win.addColorStop(0.36, 'rgba(255,255,255,0.3)');
+      win.addColorStop(0.44, 'rgba(255,255,255,0)');
+      c.fillStyle = win;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+      c.globalCompositeOperation = 'source-over';
+    });
+    innerShade(body, bodyMask, 'rgba(255,240,215,0.9)', cs * 0.05, cs * 0.045);
+    innerShade(body, bodyMask, 'rgba(70,25,5,0.5)', cs * 0.1, -cs * 0.06);
+    octx.save();
+    octx.shadowColor = 'rgba(80,35,0,0.45)';
+    octx.shadowBlur = cs * 0.035 * dpr;
+    octx.shadowOffsetY = cs * 0.012 * dpr;
+    octx.drawImage(body, 0, 0);
+    octx.restore();
+
+    // 4. Frosted porcelain lip.
     const lipMask = unionMask(cs * 0.17, cs * 0.34);
     const lip = tinted(lipMask, (c) => {
       const g = c.createLinearGradient(0, top, 0, bottom);
@@ -327,6 +392,11 @@ export class BoardRenderer {
       g.addColorStop(0.5, '#fbeee6');
       g.addColorStop(1, '#ecd8d2');
       c.fillStyle = g;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+      const gl = c.createLinearGradient(0, top, 0, top + cs * 0.6);
+      gl.addColorStop(0, 'rgba(255,255,255,0.9)');
+      gl.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = gl;
       c.fillRect(0, 0, L.viewW, L.viewH);
     });
     innerShade(lip, lipMask, 'rgba(160,110,110,0.45)', cs * 0.06, cs * 0.04);
@@ -337,7 +407,7 @@ export class BoardRenderer {
     octx.drawImage(lip, 0, 0);
     octx.restore();
 
-    // 4. Recessed frosted-glass wells with checkerboard.
+    // 5. Recessed frosted-glass wells with checkerboard.
     const wellMask = unionMask(cs * 0.035, cs * 0.2);
     const wells = tinted(wellMask, (c) => {
       const g = c.createLinearGradient(0, oy, 0, oy + L.boardH);
@@ -453,19 +523,25 @@ export class BoardRenderer {
       ctx.restore();
     }
 
+    // Collect visuals once (frame.visuals may be a one-shot iterator).
+    const vis = this.visBuf;
+    vis.length = 0;
+    for (const v of frame.visuals) vis.push(v);
+
     // Candies, clipped to the board so refills slide in from the top edge.
     ctx.save();
     ctx.beginPath();
     ctx.rect(ox - cs * 0.3, oy - cs * 0.14, L.boardW + cs * 0.6, L.boardH + cs * 0.44);
     ctx.clip();
+    this.drawCaustics(ctx, vis, frame);
     const lifted: CandyVisual[] = [];
-    for (const v of frame.visuals) {
+    for (const v of vis) {
       if (v.lift > 0.05) lifted.push(v);
-      else this.drawCandy(ctx, v, frame.colorblindMode);
+      else this.drawCandy(ctx, v, frame, false);
     }
     lifted.sort((a, b) => a.lift - b.lift);
-    for (const v of lifted) this.drawCandy(ctx, v, frame.colorblindMode);
-    for (const v of frame.dying) this.drawCandy(ctx, v, frame.colorblindMode);
+    for (const v of lifted) this.drawCandy(ctx, v, frame, false);
+    for (const v of frame.dying) this.drawCandy(ctx, v, frame, true);
     ctx.restore();
 
     // Licorice locks over candies.
@@ -486,10 +562,67 @@ export class BoardRenderer {
 
     frame.particles?.draw(ctx, L.viewW, L.viewH);
     ctx.restore();
+
+    // Stream the remaining PBR sprites a few milliseconds per frame.
+    if (this.atlas.pendingBakes > 0) this.atlas.bakeIdle(IDLE_BAKE_MS);
   }
 
-  private drawCandy(ctx: Ctx, v: CandyVisual, colorblind: boolean): void {
+  private isAt(p: GridPos | null, v: CandyVisual): boolean {
+    return !!p && Math.round(v.x) === p.col && Math.round(v.y) === p.row && Math.abs(v.x - p.col) < 0.2 && Math.abs(v.y - p.row) < 0.2;
+  }
+
+  /** Coloured caustic light pooling in the frosted well beneath specials and the selected candy. */
+  private drawCaustics(ctx: Ctx, vis: readonly CandyVisual[], frame: RenderFrame): void {
+    const { cellSize: cs, originX: ox, originY: oy } = this.layout;
+    const t = frame.time;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const v of vis) {
+      if (v.dying || v.alpha <= 0.05 || v.pop <= 0.05) continue;
+      const special = v.candy.special !== 'none' && !v.candy.ingredient;
+      const selected = this.isAt(frame.selected, v);
+      if (!special && !selected) continue;
+      let color: string;
+      if (v.candy.special === 'color-bomb') {
+        color = BOMB_CAUSTICS[Math.floor((frame.reducedMotion ? 0 : t * 1.4) + v.id) % BOMB_CAUSTICS.length];
+      } else color = candyColorHex(v.candy.color);
+      const pulse = frame.reducedMotion ? 1 : 0.82 + 0.18 * Math.sin(t * 3.1 + v.id * 1.7);
+      const a = (selected ? 0.55 : 0.36) * pulse * Math.min(1, v.alpha);
+      const cx = ox + (v.x + v.offsetX + 0.5) * cs;
+      const cy = oy + (v.y + v.offsetY + 0.5) * cs + cs * 0.14;
+      const w = cs * (selected ? 1.25 : 1.1) * v.pop;
+      ctx.globalAlpha = a;
+      ctx.drawImage(this.atlas.getGlow(color), cx - w / 2, cy - w * 0.32, w, w * 0.64);
+    }
+    ctx.restore();
+  }
+
+  /** Strength of the moving glass glint for a candy (0..1). */
+  private glintFor(v: CandyVisual, frame: RenderFrame): number {
+    const L = this.layout;
+    const t = frame.time;
+    const reduced = frame.reducedMotion;
+    let g = 0;
+    if (!reduced) {
+      // A soft diagonal sweep rippling across the board every few seconds.
+      const phase = (t % GLINT_PERIOD) / GLINT_PERIOD;
+      const band = phase * 1.7 - 0.35;
+      const pos = (v.x + v.y) / Math.max(1, L.rows + L.cols - 2);
+      const d = (pos - band) / 0.09;
+      if (d > -3 && d < 3) g = Math.exp(-d * d) * 0.7;
+    }
+    if (this.isAt(frame.selected, v) || this.isAt(frame.hover, v)) {
+      g = Math.max(g, reduced ? 0.6 : 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(t * 7)));
+    } else if (v.candy.special !== 'none' && !v.candy.ingredient) {
+      const s = reduced ? 0.3 : 0.2 + 0.5 * Math.pow(Math.max(0, Math.sin(t * 2.3 + v.id * 0.9)), 6);
+      g = Math.max(g, s);
+    }
+    return g;
+  }
+
+  private drawCandy(ctx: Ctx, v: CandyVisual, frame: RenderFrame, dying: boolean): void {
     if (v.alpha <= 0.01 || v.pop <= 0.01) return;
+    const colorblind = frame.colorblindMode;
     const { cellSize: cs, originX: ox, originY: oy } = this.layout;
     const sprite = this.atlas.getCandy(v.candy);
     const cx = ox + (v.x + v.offsetX + 0.5) * cs;
@@ -513,6 +646,17 @@ export class BoardRenderer {
       ctx.restore();
     }
     ctx.drawImage(sprite, -cs / 2, -cs / 2, cs, cs);
+    const glint = dying ? 0 : this.glintFor(v, frame);
+    if (glint > 0.02) {
+      const sheen = this.atlas.getCandySheen(v.candy);
+      if (sheen) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = Math.max(0, Math.min(1, v.alpha)) * Math.min(1, glint);
+        ctx.drawImage(sheen, -cs / 2, -cs / 2, cs, cs);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = Math.max(0, Math.min(1, v.alpha));
+      }
+    }
     if (v.flash > 0.01) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = Math.max(0, Math.min(1, v.alpha)) * Math.min(1, v.flash) * 0.85;

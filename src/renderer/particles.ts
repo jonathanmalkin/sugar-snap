@@ -36,6 +36,23 @@ interface Spark {
   twinkle: number;
 }
 
+/** Crystalline sugar shard that tumbles in 3D and flashes when a facet faces the light. */
+interface Shard {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  life: number;
+  max: number;
+  color: string;
+  rot: number;
+  spin: number;
+  flip: number;
+  flipSpeed: number;
+  gravity: number;
+}
+
 interface Ring {
   x: number;
   y: number;
@@ -113,12 +130,30 @@ interface Banner {
 
 const MAX_DROPS = 700;
 const MAX_SPARKS = 500;
+const MAX_SHARDS = 260;
+
+function hexRgb(hex: string): [number, number, number] {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((ch) => ch + ch).join('');
+  const n = parseInt(h.slice(0, 6), 16);
+  if (Number.isNaN(n)) return [255, 255, 255];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Mixes a hex colour toward another, returned as an rgba() string. */
+function mix(hex: string, toward: string, t: number, a = 1): string {
+  const [r1, g1, b1] = hexRgb(hex);
+  const [r2, g2, b2] = hexRgb(toward);
+  return `rgba(${Math.round(r1 + (r2 - r1) * t)},${Math.round(g1 + (g2 - g1) * t)},${Math.round(b1 + (b2 - b1) * t)},${a})`;
+}
 
 export class ParticleSystem {
   private drops: Droplet[] = [];
   private dropCount = 0;
   private sparks: Spark[] = [];
   private sparkCount = 0;
+  private shards: Shard[] = [];
+  private shardCount = 0;
   private rings: Ring[] = [];
   private beams: Beam[] = [];
   private bolts: Bolt[] = [];
@@ -151,7 +186,7 @@ export class ParticleSystem {
 
   get isBusy(): boolean {
     return (
-      this.dropCount + this.sparkCount + this.rings.length + this.beams.length + this.bolts.length + this.comets.length + this.popups.length + this.banners.length >
+      this.dropCount + this.sparkCount + this.shardCount + this.rings.length + this.beams.length + this.bolts.length + this.comets.length + this.popups.length + this.banners.length >
       0
     );
   }
@@ -159,6 +194,7 @@ export class ParticleSystem {
   clear(): void {
     this.dropCount = 0;
     this.sparkCount = 0;
+    this.shardCount = 0;
     this.rings.length = 0;
     this.beams.length = 0;
     this.bolts.length = 0;
@@ -197,8 +233,43 @@ export class ParticleSystem {
     return s;
   }
 
-  /** Glossy jelly droplets bursting from a cleared candy. */
+  private allocShard(): Shard | null {
+    if (this.shardCount >= MAX_SHARDS) return null;
+    let s = this.shards[this.shardCount];
+    if (!s) {
+      s = { x: 0, y: 0, vx: 0, vy: 0, size: 0, life: 0, max: 1, color: '#fff', rot: 0, spin: 0, flip: 0, flipSpeed: 0, gravity: 0 };
+      this.shards.push(s);
+    }
+    this.shardCount++;
+    return s;
+  }
+
+  /** Crystalline sugar shards that tumble and glint as they fall. */
+  private shardBurst(x: number, y: number, color: string, count: number, power: number, cellSize: number): void {
+    const n = this.density(count);
+    for (let i = 0; i < n; i++) {
+      const s = this.allocShard();
+      if (!s) return;
+      const a = Math.random() * Math.PI * 2;
+      const sp = (0.8 + Math.random() * 2.2) * cellSize * power;
+      s.x = x + Math.cos(a) * cellSize * 0.1;
+      s.y = y + Math.sin(a) * cellSize * 0.1;
+      s.vx = Math.cos(a) * sp;
+      s.vy = Math.sin(a) * sp - cellSize * (1.4 + Math.random() * 1.4);
+      s.size = cellSize * (0.07 + Math.random() * 0.07);
+      s.max = s.life = 0.5 + Math.random() * 0.45;
+      s.color = color;
+      s.rot = Math.random() * Math.PI * 2;
+      s.spin = (Math.random() - 0.5) * 10;
+      s.flip = Math.random() * Math.PI * 2;
+      s.flipSpeed = (Math.random() < 0.5 ? -1 : 1) * (8 + Math.random() * 10);
+      s.gravity = cellSize * 11;
+    }
+  }
+
+  /** Glossy jelly droplets (plus a few sugar shards) bursting from a cleared candy. */
   jellyBurst(x: number, y: number, color: string, count = 10, power = 1, cellSize = 60): void {
+    this.shardBurst(x, y, color, Math.max(1, Math.round(count * 0.4)), power, cellSize);
     const n = this.density(count);
     for (let i = 0; i < n; i++) {
       const d = this.allocDrop();
@@ -357,7 +428,25 @@ export class ParticleSystem {
       i++;
     }
 
-    this.rings = this.rings.filter((r) => (r.life -= dt) > 0);
+    for (let i = 0; i < this.shardCount; ) {
+      const s = this.shards[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.shardCount--;
+        this.shards[i] = this.shards[this.shardCount];
+        this.shards[this.shardCount] = s;
+        continue;
+      }
+      s.vy += s.gravity * dt;
+      s.vx *= 1 - 1.4 * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.rot += s.spin * dt;
+      s.flip += s.flipSpeed * dt;
+      i++;
+    }
+
+    this.rings =this.rings.filter((r) => (r.life -= dt) > 0);
     this.beams = this.beams.filter((b) => (b.life -= dt) > 0);
     this.popups = this.popups.filter((p) => (p.life -= dt) > 0);
 
@@ -478,27 +567,90 @@ export class ParticleSystem {
     return c;
   }
 
+  /** Wet jelly droplet lit like the candies: deep rim, glowing core, mirror glints. */
   private dropSprite(color: string): HTMLCanvasElement {
-    return this.sprite(`drop:${color}`, 32, (ctx, S) => {
-      const g = ctx.createRadialGradient(S * 0.38, S * 0.34, S * 0.02, S * 0.5, S * 0.52, S * 0.5);
-      g.addColorStop(0, '#ffffff');
-      g.addColorStop(0.18, withAlpha(color, 1));
-      g.addColorStop(0.8, withAlpha(color, 0.95));
-      g.addColorStop(1, withAlpha(color, 0));
-      ctx.fillStyle = g;
+    return this.sprite(`drop:${color}`, 40, (ctx, S) => {
+      const c = S / 2;
+      const r = S * 0.46;
+      // Translucent body: lighter where light passes through, deeper toward the rim.
+      const body = ctx.createRadialGradient(c - r * 0.22, c - r * 0.28, r * 0.05, c, c, r);
+      body.addColorStop(0, mix(color, '#ffffff', 0.42));
+      body.addColorStop(0.5, mix(color, '#ffffff', 0.05));
+      body.addColorStop(0.86, mix(color, '#000000', 0.3));
+      body.addColorStop(1, mix(color, '#000000', 0.45, 0.95));
+      ctx.fillStyle = body;
       ctx.beginPath();
-      ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
+      ctx.arc(c, c, r, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.beginPath();
-      ctx.arc(S * 0.56, S * 0.6, S * 0.3, 0, Math.PI * 2);
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.fill();
+      // Subsurface glow exiting the lower right.
+      const sss = ctx.createRadialGradient(c + r * 0.3, c + r * 0.38, 0, c + r * 0.3, c + r * 0.38, r * 0.62);
+      sss.addColorStop(0, mix(color, '#ffffff', 0.62, 0.85));
+      sss.addColorStop(1, mix(color, '#ffffff', 0.4, 0));
+      ctx.fillStyle = sss;
+      ctx.fillRect(0, 0, S, S);
+      // Fresnel rim.
+      const rim = ctx.createRadialGradient(c, c, r * 0.76, c, c, r);
+      rim.addColorStop(0, 'rgba(255,255,255,0)');
+      rim.addColorStop(1, 'rgba(255,255,255,0.38)');
+      ctx.fillStyle = rim;
+      ctx.fillRect(0, 0, S, S);
       ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      // Softbox mirror pool and a cool rim glint.
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.beginPath();
-      ctx.ellipse(S * 0.36, S * 0.32, S * 0.11, S * 0.07, -0.6, 0, Math.PI * 2);
+      ctx.ellipse(c - r * 0.34, c - r * 0.4, r * 0.3, r * 0.17, -0.65, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = 'rgba(235,245,255,0.7)';
+      ctx.beginPath();
+      ctx.arc(c + r * 0.46, c - r * 0.3, r * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  /** Faceted sugar crystal: two lit facets, a bright ridge and a crisp outline. */
+  private shardSprite(color: string): HTMLCanvasElement {
+    return this.sprite(`shard:${color}`, 32, (ctx, S) => {
+      const c = S / 2;
+      const top: [number, number] = [c, S * 0.04];
+      const bot: [number, number] = [c, S * 0.96];
+      const l: [number, number] = [S * 0.3, S * 0.42];
+      const rr: [number, number] = [S * 0.7, S * 0.5];
+      ctx.beginPath();
+      ctx.moveTo(top[0], top[1]);
+      ctx.lineTo(rr[0], rr[1]);
+      ctx.lineTo(bot[0], bot[1]);
+      ctx.lineTo(l[0], l[1]);
+      ctx.closePath();
+      ctx.fillStyle = mix(color, '#ffffff', 0.15, 0.92);
+      ctx.fill();
+      // Lit left facet.
+      ctx.beginPath();
+      ctx.moveTo(top[0], top[1]);
+      ctx.lineTo(c, c);
+      ctx.lineTo(bot[0], bot[1]);
+      ctx.lineTo(l[0], l[1]);
+      ctx.closePath();
+      ctx.fillStyle = mix(color, '#ffffff', 0.65, 0.95);
+      ctx.fill();
+      // Ridge + outline.
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = S * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(top[0], top[1]);
+      ctx.lineTo(c, c);
+      ctx.lineTo(bot[0], bot[1]);
+      ctx.stroke();
+      ctx.strokeStyle = mix(color, '#ffffff', 0.4, 0.8);
+      ctx.lineWidth = S * 0.03;
+      ctx.beginPath();
+      ctx.moveTo(top[0], top[1]);
+      ctx.lineTo(rr[0], rr[1]);
+      ctx.lineTo(bot[0], bot[1]);
+      ctx.lineTo(l[0], l[1]);
+      ctx.closePath();
+      ctx.stroke();
     });
   }
 
@@ -545,8 +697,21 @@ export class ParticleSystem {
       const rad = r.r0 + (r.r1 - r.r0) * e;
       const a = Math.pow(1 - p, 1.4);
       ctx.globalCompositeOperation = 'lighter';
+      // Luminous core flash as the ring is born.
+      if (p < 0.35) {
+        const k = 1 - p / 0.35;
+        const gs = this.glowSprite(r.color);
+        const sz = rad * 1.4;
+        ctx.globalAlpha = 0.55 * k;
+        ctx.drawImage(gs, r.x - sz / 2, r.y - sz / 2, sz, sz);
+        ctx.globalAlpha = 1;
+      }
       ctx.beginPath();
       ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+      // Soft bloom halo around the ring.
+      ctx.lineWidth = Math.max(2, r.width * 3.2 * (1 - p * 0.6));
+      ctx.strokeStyle = withAlpha(r.color, 0.16 * a);
+      ctx.stroke();
       const fill = ctx.createRadialGradient(r.x, r.y, rad * 0.55, r.x, r.y, rad);
       fill.addColorStop(0, withAlpha(r.color, 0));
       fill.addColorStop(1, withAlpha(r.color, 0.22 * a));
@@ -579,6 +744,9 @@ export class ParticleSystem {
       ctx.beginPath();
       ctx.moveTo(ax, ay);
       ctx.lineTo(bx, by);
+      ctx.lineWidth = th * 6 * flick;
+      ctx.strokeStyle = withAlpha(b.color, 0.08 * env);
+      ctx.stroke();
       ctx.lineWidth = th * 3.4 * flick;
       ctx.strokeStyle = withAlpha(b.color, 0.22 * env);
       ctx.stroke();
@@ -589,6 +757,15 @@ export class ParticleSystem {
       ctx.lineWidth = th * 0.55;
       ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, env * 1.2)})`;
       ctx.stroke();
+      // Energy shimmer racing outward along the beam.
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.setLineDash([th * 0.7, th * 1.5]);
+      ctx.lineDashOffset = this.reducedMotion ? 0 : -this.time * th * 22;
+      ctx.lineWidth = th * 0.9;
+      ctx.strokeStyle = mix(b.color, '#ffffff', 0.7, 0.55 * env);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalCompositeOperation = 'source-over';
       // Hot end caps.
       const gs = this.glowSprite(b.color);
       const cap = th * 3;
@@ -610,6 +787,10 @@ export class ParticleSystem {
         ctx.beginPath();
         pts.forEach(([x, y], k) => (k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
         ctx.globalCompositeOperation = 'lighter';
+        // Wide atmospheric bloom.
+        ctx.lineWidth = 24 * w;
+        ctx.strokeStyle = b.color === 'rainbow' ? `hsla(${(b.hue + this.time * 540) % 360}, 100%, 70%, ${0.1 * p})` : withAlpha(col, 0.1 * p);
+        ctx.stroke();
         ctx.lineWidth = 11 * w;
         ctx.strokeStyle = b.color === 'rainbow' ? `hsla(${(b.hue + this.time * 540) % 360}, 100%, 60%, ${0.3 * p})` : withAlpha(col, 0.3 * p);
         ctx.stroke();
@@ -624,7 +805,10 @@ export class ParticleSystem {
       const gs = this.glowSprite('#ffffff');
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = p;
-      ctx.drawImage(gs, b.x2 - 18, b.y2 - 18, 36, 36);
+      ctx.drawImage(gs, b.x2 - 26, b.y2 - 26, 52, 52);
+      // Origin flare.
+      ctx.globalAlpha = p * 0.6;
+      ctx.drawImage(gs, b.x1 - 20, b.y1 - 20, 40, 40);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
@@ -668,6 +852,31 @@ export class ParticleSystem {
       ctx.scale(stretch, 1 / stretch);
       ctx.drawImage(sp, -r, -r, r * 2, r * 2);
       ctx.restore();
+    }
+
+    // Sugar shards: tumble via a squashed axis; flash when a facet faces the light.
+    for (let i = 0; i < this.shardCount; i++) {
+      const s = this.shards[i];
+      const p = s.life / s.max;
+      const flipK = Math.cos(s.flip);
+      const sx = Math.max(0.18, Math.abs(flipK));
+      const size = s.size * (0.6 + 0.4 * p);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, p * 1.8);
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      ctx.scale(sx, 1);
+      ctx.drawImage(this.shardSprite(s.color), -size / 2, -size, size, size * 2);
+      ctx.restore();
+      if (sx > 0.9) {
+        const k = (sx - 0.9) / 0.1;
+        const gsz = size * 2.6;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = Math.min(1, p * 1.5) * k * 0.85;
+        ctx.drawImage(this.sparkSprite('#ffffff'), s.x - gsz / 2, s.y - gsz / 2, gsz, gsz);
+        ctx.restore();
+      }
     }
 
     // Sparkles.

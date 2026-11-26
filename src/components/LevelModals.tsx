@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import type { ISoundEngine } from '../audio/soundTypes';
 import type { BoosterType, ChapterDef, LevelDef, ObjectiveProgress, ObjectiveTarget } from '../engine/types';
 import { BOOSTER_ICON, CandyIcon, objectiveIcon } from './CandyIcon';
@@ -154,6 +154,7 @@ export interface VictoryModalProps {
 }
 
 const VICTORY_TITLES = ['', 'Snappy!', 'Yummy!', 'Spectacular!'];
+const SPARK_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 
 export function VictoryModal({
   level,
@@ -207,6 +208,13 @@ export function VictoryModal({
             className={`victory__star victory__star--${n}${n <= shown ? ' is-lit' : ''}`}
           >
             <CandyIcon kind={n <= shown ? 'star' : 'star-empty'} size={n === 2 ? 88 : 70} />
+            {n <= shown && !reducedMotion ? (
+              <span className="victory__burst" aria-hidden="true">
+                {SPARK_ANGLES.map((a) => (
+                  <span key={a} className="victory__spark" style={{ ['--a' as string]: `${a}deg` } as CSSProperties} />
+                ))}
+              </span>
+            ) : null}
           </span>
         ))}
       </div>
