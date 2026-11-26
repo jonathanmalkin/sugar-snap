@@ -104,7 +104,7 @@ export interface ChapterDef {
   levelIds: number[];
 }
 
-export type PraiseWord = 'Sweet!' | 'Tasty!' | 'Delicious!' | 'Divine!' | 'Sugar Crush!';
+export type PraiseWord = 'Snappy!' | 'Juicy!' | 'Yummy!' | 'Spectacular!' | 'Sugar Snap!';
 
 export type AnimationEvent =
   | { type: 'swap'; from: GridPos; to: GridPos; valid: boolean }
