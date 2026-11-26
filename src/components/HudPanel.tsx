@@ -1,6 +1,11 @@
 import type { ReactElement } from 'react';
 import type { ChapterDef, LevelDef, ObjectiveProgress } from '../engine/types';
-import { CandyIcon, objectiveIcon } from './CandyIcon';
+import { CandyIcon, objectiveIcon, type IconKind } from './CandyIcon';
+
+export interface ZenStats {
+  bestScore: number;
+  bestCascade: number;
+}
 
 export interface HudPanelProps {
   level: LevelDef;
@@ -9,6 +14,11 @@ export interface HudPanelProps {
   movesLeft: number;
   objectives: ObjectiveProgress[];
   stars: 0 | 1 | 2 | 3;
+  /** 'zen' swaps the moves dial for an endless orb and goals for Zen Stats. */
+  mode?: 'saga' | 'zen';
+  zenStats?: ZenStats;
+  /** Win streak whose Baker's Gift specials were baked into this board (0 hides the pill). */
+  giftStreak?: number;
 }
 
 export function formatScore(n: number): string {
@@ -47,6 +57,52 @@ function MovesDial({ movesLeft, total }: { movesLeft: number; total: number }): 
         <span className="moves-dial__label">moves</span>
       </div>
     </div>
+  );
+}
+
+/** Endless Zen orb: a calm, always-full mint ring around a glowing ∞. */
+function ZenDial(): ReactElement {
+  return (
+    <div className="moves-dial moves-dial--zen" role="status" aria-label="Endless moves">
+      <svg className="moves-dial__ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r={40} className="moves-dial__track" />
+        <circle cx="50" cy="50" r={40} className="moves-dial__fill" />
+      </svg>
+      <div className="moves-dial__core">
+        <span className="moves-dial__value moves-dial__value--zen" aria-hidden="true">
+          <CandyIcon kind="infinity" size={52} />
+        </span>
+        <span className="moves-dial__label">endless</span>
+      </div>
+    </div>
+  );
+}
+
+function ZenStatPill({ icon, value, label }: { icon: IconKind; value: string; label: string }): ReactElement {
+  return (
+    <li className="objective-pill zen-stat" aria-label={`${label}: ${value}`}>
+      <span className="objective-pill__icon">
+        <CandyIcon kind={icon} size={30} />
+      </span>
+      <span className="objective-pill__text">
+        <span className="objective-pill__count">{value}</span>
+        <span className="objective-pill__label">{label}</span>
+      </span>
+    </li>
+  );
+}
+
+/** Warm, non-blocking note that this board opened with streak specials. */
+export function BakersGiftPill({ streak }: { streak: number }): ReactElement {
+  return (
+    <span className="gift-pill" role="status" aria-label={`Baker's Gift for a ${streak} win streak`}>
+      <span className="gift-pill__gem" aria-hidden="true">
+        <CandyIcon kind="gift" size={20} />
+      </span>
+      <span className="gift-pill__text">
+        Baker's Gift <span className="gift-pill__streak">· Streak ×{streak}</span>
+      </span>
+    </span>
   );
 }
 
@@ -103,13 +159,49 @@ export function StarMeter({
   );
 }
 
-export function HudPanel({ level, chapter, score, movesLeft, objectives, stars }: HudPanelProps): ReactElement {
+export function HudPanel({
+  level,
+  chapter,
+  score,
+  movesLeft,
+  objectives,
+  stars,
+  mode = 'saga',
+  zenStats,
+  giftStreak = 0,
+}: HudPanelProps): ReactElement {
+  if (mode === 'zen') {
+    const bestScore = Math.max(zenStats?.bestScore ?? 0, score);
+    const bestCascade = zenStats?.bestCascade ?? 0;
+    return (
+      <section className="hud hud--zen" aria-label="Endless Zen status">
+        <div className="hud__badge">
+          <span className="hud__chapter">{chapter.name}</span>
+          <span className="hud__level">Endless Zen</span>
+          <span className="hud__name">{level.name}</span>
+        </div>
+
+        <ZenDial />
+
+        <div className="hud__objectives zen-stats">
+          <h2 className="hud__heading">Zen Stats</h2>
+          <ul className="objective-list">
+            <ZenStatPill icon="yellow" value={formatScore(score)} label="Score" />
+            <ZenStatPill icon="star" value={formatScore(bestScore)} label="Best Score" />
+            <ZenStatPill icon="color-bomb" value={`×${bestCascade}`} label="Best Cascade" />
+          </ul>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="hud" aria-label="Level status">
       <div className="hud__badge">
         <span className="hud__chapter">{chapter.name}</span>
         <span className="hud__level">Level {level.id}</span>
         <span className="hud__name">{level.name}</span>
+        {giftStreak >= 1 ? <BakersGiftPill streak={giftStreak} /> : null}
       </div>
 
       <MovesDial movesLeft={movesLeft} total={level.moves} />

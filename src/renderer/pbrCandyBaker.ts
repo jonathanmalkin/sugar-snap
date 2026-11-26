@@ -24,7 +24,7 @@
  */
 
 export type PbrCandyColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple';
-export type PbrCandySpecial = 'none' | 'striped-h' | 'striped-v' | 'wrapped';
+export type PbrCandySpecial = 'none' | 'striped-h' | 'striped-v' | 'wrapped' | 'seeker';
 
 export type PbrSpriteSpec =
   | { kind: 'candy'; color: PbrCandyColor | 'none'; special: PbrCandySpecial }
@@ -973,6 +973,263 @@ function wrapperFn(p: Pal): SampleFn {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Sugar Bee (homing seeker)                                                   */
+/* -------------------------------------------------------------------------- */
+
+// The bee's local frame: body centre and a slight nose-up tilt so the tail dips.
+const BEE_X = 0.02;
+const BEE_Y = 0.12;
+const BEE_TILT = 0.12;
+const BEE_CA = Math.cos(BEE_TILT);
+const BEE_SA = Math.sin(BEE_TILT);
+
+/** Honey stripe colour that always contrasts with the candy body. */
+function beeStripe(color: PbrCandyColor | 'none'): RGB {
+  if (color === 'yellow') return [0.4, 0.17, 0.03]; // a real bee: dark amber on gold
+  if (color === 'orange') return [1, 0.9, 0.55]; // pale honey cream on tangerine
+  return [1, 0.74, 0.14]; // warm golden honey
+}
+
+/**
+ * Plump teardrop glass-candy bee: big round head end with glossy eyes, blush
+ * and a smile, golden honey belly bands wrapped over the dome, a honey stinger
+ * and two bobble antennae.
+ */
+function beeBodyFn(color: PbrCandyColor | 'none'): SampleFn {
+  const p = PAL[color];
+  const stripeC = beeStripe(color);
+  const stingC: RGB = [0.52, 0.27, 0.05];
+  const stalkC: RGB = [0.3, 0.12, 0.04];
+  const eyeC: RGB = [0.05, 0.02, 0.07];
+  const blushC: RGB = [1, 0.56, 0.66];
+  const smileC: RGB = [0.28, 0.06, 0.1];
+  const ants = [quadPts(-0.52, -0.22, -0.74, -0.42, -0.86, -0.36, 8), quadPts(-0.4, -0.3, -0.56, -0.56, -0.72, -0.58, 8)];
+  const antBox = ants.map((pts) => {
+    const xs = pts.map((q) => q[0]);
+    const ys = pts.map((q) => q[1]);
+    return [Math.min(...xs) - 0.1, Math.min(...ys) - 0.1, Math.max(...xs) + 0.1, Math.max(...ys) + 0.1];
+  });
+  const EYES: ReadonlyArray<readonly [number, number]> = [
+    [-0.43, -0.02],
+    [-0.21, 0.04],
+  ];
+  const BLUSH: ReadonlyArray<readonly [number, number]> = [
+    [-0.53, 0.16],
+    [-0.11, 0.21],
+  ];
+  const ER = 0.08;
+  const AW = 0.028;
+  const AB = 0.07;
+  return (x, y, s) => {
+    const dx = x - BEE_X;
+    const dy = y - BEE_Y;
+    const u = dx * BEE_CA + dy * BEE_SA;
+    const v = -dx * BEE_SA + dy * BEE_CA;
+    const r2 = u * u + v * v;
+    if (r2 > 1.2) {
+      s.d = Math.sqrt(r2) - 1.04;
+      return;
+    }
+    // Teardrop: an ellipse whose half-height tapers toward the tail, plus a stinger.
+    const taper = 1 - 0.3 * smoothstep(-0.3, 0.75, u);
+    const dB = sdEllipse(u, v / taper, 0.7, 0.5) * taper;
+    const sr = 0.06 - 0.045 * clamp01((u - 0.58) / 0.3);
+    const dS = segDist(u, v, 0.58, 0.02, 0.88, 0.06) - sr;
+    const dBody = smin(dB, dS, 0.05);
+    let d = dBody;
+    let h = dBody < 0 ? inflate(-dBody, 0.46) : 0;
+    let part = 0; // 0 body, 1 antenna stalk, 2 antenna bobble
+    for (let q = 0; q < ants.length; q++) {
+      const bb = antBox[q];
+      if (u < bb[0] || u > bb[2] || v < bb[1] || v > bb[3]) continue;
+      const pts = ants[q];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const dist = segDist(u, v, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+        if (dist - AW < d) d = dist - AW;
+        if (dist < AW) {
+          const hh = 0.36 - 0.1 * clamp01((-u - 0.4) / 0.46) + Math.sqrt(AW * AW - dist * dist);
+          if (hh > h) {
+            h = hh;
+            part = 1;
+          }
+        }
+      }
+      const end = pts[pts.length - 1];
+      const de = len2(u - end[0], v - end[1]);
+      if (de - AB < d) d = de - AB;
+      if (de < AB) {
+        const hh = 0.3 + Math.sqrt(AB * AB - de * de);
+        if (hh > h) {
+          h = hh;
+          part = 2;
+        }
+      }
+    }
+    s.d = d;
+    if (d > 0.04) return;
+    s.h = h;
+    if (part === 1) {
+      set(s, stalkC, 1);
+      return;
+    }
+    if (part === 2) {
+      set(s, p.base, 0);
+      return;
+    }
+    if (dS < dB) {
+      set(s, stingC, 1);
+      return;
+    }
+    set(s, p.base, 0);
+    // Honey belly bands, bowed over the dome toward the tail.
+    const c = u * (1 + 0.4 * h) + 0.12 * v * v;
+    const t = (c - 0.06) / 0.25;
+    const k = Math.round(t);
+    if (k >= 0 && k <= 2) {
+      const w = smoothstep(0.27, 0.2, Math.abs(t - k));
+      if (w > 0) {
+        s.r += (stripeC[0] - s.r) * w;
+        s.g += (stripeC[1] - s.g) * w;
+        s.b += (stripeC[2] - s.b) * w;
+        s.h += 0.018 * w;
+        if (w > 0.5) s.m = 1;
+      }
+    }
+    // Rosy cheeks.
+    for (const b of BLUSH) {
+      const wb = smoothstep(0.09, 0.025, len2(u - b[0], v - b[1])) * 0.42;
+      if (wb > 0) {
+        s.r += (blushC[0] - s.r) * wb;
+        s.g += (blushC[1] - s.g) * wb;
+        s.b += (blushC[2] - s.b) * wb;
+      }
+    }
+    // Little smile between the eyes.
+    const sx = u + 0.32;
+    const sy = v - 0.09;
+    if (sy > 0.02) {
+      const ds = Math.abs(len2(sx, sy) - 0.075);
+      if (ds < 0.016) {
+        const ws = smoothstep(0.016, 0.006, ds);
+        s.r += (smileC[0] - s.r) * ws;
+        s.g += (smileC[1] - s.g) * ws;
+        s.b += (smileC[2] - s.b) * ws;
+        s.h -= 0.008 * ws;
+      }
+    }
+    // Glossy domed eyes with a softbox catchlight.
+    for (const e of EYES) {
+      const de = len2(u - e[0], v - e[1]);
+      if (de >= ER) continue;
+      const we = smoothstep(ER, ER - 0.014, de);
+      s.h += Math.sqrt(ER * ER - de * de) * 0.55;
+      s.r += (eyeC[0] - s.r) * we;
+      s.g += (eyeC[1] - s.g) * we;
+      s.b += (eyeC[2] - s.b) * we;
+      if (we > 0.5) s.m = 2;
+      const dc = len2(u - e[0] + 0.026, v - e[1] + 0.03);
+      if (dc < 0.026) s.e = Math.max(s.e, (1 - dc / 0.026) * 1.3);
+    }
+  };
+}
+
+/** Two translucent iridescent glass wings in a V over the bee's back. */
+function beeWingsFn(color: PbrCandyColor | 'none'): SampleFn {
+  const p = PAL[color];
+  const WINGS: ReadonlyArray<readonly [number, number, number, number, number]> = [
+    // cx, cy, angle, a, b (bee-local)
+    [-0.1, -0.5, 0.55, 0.34, 0.17],
+    [0.22, -0.48, -0.55, 0.3, 0.15],
+  ];
+  const trig = WINGS.map((w) => [Math.cos(w[2]), Math.sin(w[2])] as const);
+  return (x, y, s) => {
+    const dx = x - BEE_X;
+    const dy = y - BEE_Y;
+    const u = dx * BEE_CA + dy * BEE_SA;
+    const v = -dx * BEE_SA + dy * BEE_CA;
+    if (v > -0.1 || u < -0.75 || u > 0.75) {
+      s.d = Math.max(v + 0.1, Math.abs(u) - 0.75, 0.05);
+      return;
+    }
+    let d = 9;
+    let h = 0;
+    let wu = 0;
+    let wv = 0;
+    let wa = 1;
+    let edge = 9;
+    for (let q = 0; q < WINGS.length; q++) {
+      const w = WINGS[q];
+      const lx = u - w[0];
+      const ly = v - w[1];
+      const au = lx * trig[q][0] + ly * trig[q][1];
+      const av = -lx * trig[q][1] + ly * trig[q][0];
+      const di = sdEllipse(au, av, w[3], w[4]);
+      if (di < d) d = di;
+      if (di < 0) {
+        const hh = 0.08 + inflate(-di, 0.09) * 0.8 + 0.04 * q;
+        if (hh > h) {
+          h = hh;
+          wu = au;
+          wv = av;
+          wa = w[3];
+          edge = -di;
+        }
+      }
+    }
+    s.d = d;
+    if (d > 0.04) return;
+    s.h = h;
+    // Soap-bubble iridescence drifting across the membrane, tinted by the candy.
+    const f = 0.9 * (wu / wa) + 1.6 * wv + 2.2 * Math.min(edge, 0.12);
+    const tau = Math.PI * 2;
+    const ir = 0.78 + 0.22 * Math.cos(tau * f);
+    const ig = 0.78 + 0.22 * Math.cos(tau * (f - 0.33));
+    const ib = 0.8 + 0.2 * Math.cos(tau * (f - 0.67));
+    s.r = ir * 0.72 + p.light[0] * 0.28;
+    s.g = ig * 0.72 + p.light[1] * 0.28;
+    s.b = ib * 0.72 + p.light[2] * 0.28;
+    s.m = 0;
+    // Fine glass veins and a lit leading edge.
+    const vein = Math.abs(wv - 0.18 * wa * (wu / wa) * (wu / wa));
+    const vein2 = Math.abs(wv + 0.35 * (wu - wa * 0.1));
+    let e = 0.16 * smoothstep(0.012, 0.003, vein) + 0.1 * smoothstep(0.01, 0.002, vein2) * smoothstep(-0.3 * wa, 0.2 * wa, wu);
+    e += 0.32 * smoothstep(0.03, 0.004, edge);
+    s.e = e;
+  };
+}
+
+function beeBodyMats(color: PbrCandyColor | 'none'): Mat[] {
+  const p = PAL[color];
+  return [
+    mat({ sssC: p.sss, rimC: p.light, sss: 0.8, rim: 0.5, spec: 1.3, sharp: 2.1, broad: 0.5, deepen: 0.6 }),
+    mat({ spec: 1.25, f0: 0.07, broad: 0.55, sharp: 2, sss: 0.85, sssC: [1, 0.78, 0.3], rim: 0.4, rimC: [1, 0.92, 0.65], deepen: 0.45 }),
+    mat({ spec: 1.6, f0: 0.08, broad: 0.6, sharp: 2.6, sss: 0.05, rim: 0.3, rimC: [0.8, 0.85, 1], deepen: 0.1, diff: 0.5 }),
+  ];
+}
+
+function bakeSeeker(color: PbrCandyColor | 'none', S: number): PbrBakeResult {
+  const p = PAL[color];
+  const body = raster(S, beeBodyFn(color));
+  const wings = raster(S, beeWingsFn(color));
+  const wingMat = mat({ op: 0.24, spec: 1.5, f0: 0.08, sss: 0.15, sssC: p.light, broad: 0.6, sharp: 2.4, rim: 0.85, rimC: [0.9, 0.95, 1], deepen: 0, diff: 0.55, amb: 0.5, sheen: 1.3 });
+  const out = aura(S, 0, BEE_Y - 0.12, 0.72, 0.36, p.glow);
+  const shCov = new Float32Array(S * S);
+  for (let i = 0; i < shCov.length; i++) {
+    const w = wings.cov[i] * 0.3;
+    shCov[i] = body.cov[i] > w ? body.cov[i] : w;
+  }
+  over(out, shadowFor(shCov, S, p, 0.4));
+  const cb = shade(body, beeBodyMats(color), { sheen: true, ns: 1.05 });
+  const cw = shade(wings, [wingMat], { sheen: true, ao: 0 });
+  over(out, cb.col);
+  over(out, cw.col);
+  let sheen = cb.sheen;
+  if (sheen && cw.sheen) over(sheen, cw.sheen);
+  else sheen = sheen ?? cw.sheen;
+  return finish(S, out, sheen);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Specials & ingredients                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -1488,6 +1745,7 @@ export function bakePbrSprite(spec: PbrSpriteSpec, S: number): PbrBakeResult {
   switch (spec.kind) {
     case 'candy': {
       const p = PAL[spec.color];
+      if (spec.special === 'seeker') return bakeSeeker(spec.color, S);
       if (spec.special === 'wrapped') {
         // Reuse the plain candy's lit body, shrunk inside the cellophane.
         const body = plainBody(spec.color, S);
@@ -1603,6 +1861,7 @@ export const PBR_PREWARM_SPECS: readonly PbrSpriteSpec[] = (() => {
     for (const special of ['none', 'striped-h', 'striped-v', 'wrapped'] as const) out.push({ kind: 'candy', color, special });
   }
   out.push({ kind: 'bomb' }, { kind: 'cherry' }, { kind: 'hazelnut' });
+  for (const color of ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const) out.push({ kind: 'candy', color, special: 'seeker' });
   out.push({ kind: 'frosting', layers: 1 }, { kind: 'frosting', layers: 2 }, { kind: 'frosting', layers: 3 });
   out.push({ kind: 'chocolate' }, { kind: 'locked' }, { kind: 'jelly', layers: 1 }, { kind: 'jelly', layers: 2 });
   return out;

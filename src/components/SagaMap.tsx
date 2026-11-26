@@ -4,12 +4,14 @@ import { CHAPTERS, getLevelById } from '../levels';
 import { getTotalStars } from '../state/storage';
 import type { PlayerSave } from '../state/storageTypes';
 import { CandyIcon } from './CandyIcon';
+import { formatScore } from './HudPanel';
 import { WorldMapCanvas, WorldParticles, buildWorldLayout, type WorldNode } from './WorldMapCanvas';
 
 export interface SagaMapProps {
   save: PlayerSave;
   reducedMotion: boolean;
   onPlayLevel: (levelId: number) => void;
+  onPlayZen: () => void;
   onOpenSettings: () => void;
 }
 
@@ -25,13 +27,20 @@ function initialWidth(): number {
   return typeof window === 'undefined' ? 1024 : window.innerWidth || 1024;
 }
 
-export function SagaMap({ save, reducedMotion, onPlayLevel, onOpenSettings }: SagaMapProps): ReactElement {
+export function SagaMap({ save, reducedMotion, onPlayLevel, onPlayZen, onOpenSettings }: SagaMapProps): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(initialWidth);
   const totalStars = getTotalStars(save);
   const maxStars = CHAPTERS.reduce((n, c) => n + c.levelIds.length, 0) * 3;
   const highest = save.highestUnlockedLevel;
   const currentLevel = safeLevel(highest);
+  const winStreak = save.winStreak;
+  const zenActive = save.zenState !== null;
+  const zenSub = zenActive
+    ? `Resume · ${formatScore(save.zenState?.score ?? 0)}`
+    : save.zenBestScore > 0
+      ? `Best ${formatScore(save.zenBestScore)}`
+      : 'No moves limit';
 
   /* The world is laid out in real pixels for the live viewport width. */
   useLayoutEffect(() => {
@@ -203,6 +212,17 @@ export function SagaMap({ save, reducedMotion, onPlayLevel, onOpenSettings }: Sa
           </span>
         </h1>
         <div className="saga-chrome__cluster">
+          {winStreak >= 1 ? (
+            <span className="streak-pill" role="img" aria-label={`Win streak ${winStreak}`}>
+              <span className="streak-pill__flame" aria-hidden="true">
+                <CandyIcon kind="flame" size={24} />
+              </span>
+              <span className="streak-pill__label" aria-hidden="true">
+                Streak
+              </span>
+              <strong aria-hidden="true">×{winStreak}</strong>
+            </span>
+          ) : null}
           <span className="star-pill" role="img" aria-label={`${totalStars} of ${maxStars} stars`}>
             <span className="star-pill__gem" aria-hidden="true">
               <CandyIcon kind="star" size={30} />
@@ -224,6 +244,20 @@ export function SagaMap({ save, reducedMotion, onPlayLevel, onOpenSettings }: Sa
           <span className="saga-cta__text">
             <span className="saga-cta__label">Play Level {highest}</span>
             {currentLevel ? <span className="saga-cta__name">{currentLevel.name}</span> : null}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`saga-cta saga-cta--zen${zenActive ? ' is-resume' : ''}`}
+          onClick={onPlayZen}
+          aria-label={`Endless Zen, ${zenSub}`}
+        >
+          <span className="saga-cta__jewel saga-cta__jewel--zen" aria-hidden="true">
+            <CandyIcon kind="infinity" size={34} />
+          </span>
+          <span className="saga-cta__text" aria-hidden="true">
+            <span className="saga-cta__label">Endless Zen</span>
+            <span className="saga-cta__name">{zenSub}</span>
           </span>
         </button>
       </div>

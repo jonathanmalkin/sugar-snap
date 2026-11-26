@@ -1,6 +1,8 @@
-import type { BoosterType } from '../engine/types'
+import { ALL_CANDY_COLORS } from '../engine/types'
+import type { BoosterType, Cell, SpecialType } from '../engine/types'
 import { LEVELS } from '../levels/levels'
-import type { LevelProgress, PlayerSave, UserSettings } from './storageTypes'
+import { ZEN_LEVEL } from '../levels/zen'
+import type { LevelProgress, PlayerSave, UserSettings, ZenSaveState } from './storageTypes'
 
 export const STORAGE_KEY = 'sugarsnap_save_v1'
 
@@ -22,6 +24,10 @@ export function createDefaultSave(): PlayerSave {
     levels: {},
     boosters: { hammer: 2, 'free-switch': 2, shuffle: 2 },
     totalStarsClaimedForBoosters: 0,
+    winStreak: 0,
+    zenBestScore: 0,
+    zenBestCascade: 0,
+    zenState: null,
     settings: { ...DEFAULT_SETTINGS },
   }
 }
@@ -64,6 +70,56 @@ function mergeSettings(value: unknown, base: UserSettings): UserSettings {
   }
 }
 
+const SPECIALS: readonly SpecialType[] = ['none', 'striped-h', 'striped-v', 'wrapped', 'color-bomb', 'seeker']
+
+function isZenCell(value: unknown, row: number, col: number): value is Cell {
+  const cell = asRecord(value)
+  if (cell.row !== row || cell.col !== col
+    || typeof cell.playable !== 'boolean' || typeof cell.locked !== 'boolean'
+    || typeof cell.chocolate !== 'boolean' || typeof cell.isExit !== 'boolean'
+    || ![0, 1, 2].some((n) => n === cell.jelly) || ![0, 1, 2, 3].some((n) => n === cell.frosting)) return false
+  if (cell.candy === null) return true
+  const candy = asRecord(cell.candy)
+  return nonnegativeInteger(candy.id) === candy.id && candy.id > 0
+    && (candy.color === 'none' || ALL_CANDY_COLORS.some((color) => color === candy.color))
+    && SPECIALS.some((special) => special === candy.special)
+    && (candy.ingredient === undefined || candy.ingredient === 'cherry' || candy.ingredient === 'hazelnut')
+}
+
+function parseZenState(value: unknown): ZenSaveState | null {
+  const zen = asRecord(value)
+  const grid: unknown = zen.grid
+  if (!Array.isArray(grid) || grid.length !== ZEN_LEVEL.rows) return null
+
+  const cells: Cell[][] = []
+  const ids = new Set<number>()
+  let maxId = 0
+  for (const [rowIndex, row] of grid.entries()) {
+    if (!Array.isArray(row) || row.length !== ZEN_LEVEL.cols) return null
+    const validated: Cell[] = []
+    for (const [colIndex, cell] of row.entries()) {
+      if (!isZenCell(cell, rowIndex, colIndex)) return null
+      if (cell.candy) {
+        if (ids.has(cell.candy.id)) return null
+        ids.add(cell.candy.id)
+        maxId = Math.max(maxId, cell.candy.id)
+      }
+      validated.push(cell)
+    }
+    cells.push(validated)
+  }
+
+  const nextCandyId = nonnegativeInteger(zen.nextCandyId)
+  if (nextCandyId <= maxId) return null
+  return {
+    grid: cells,
+    score: nonnegativeInteger(zen.score),
+    maxCascade: nonnegativeInteger(zen.maxCascade),
+    totalMovesMade: nonnegativeInteger(zen.totalMovesMade),
+    nextCandyId,
+  }
+}
+
 export function loadSave(): PlayerSave {
   const save = createDefaultSave()
   try {
@@ -91,6 +147,10 @@ export function loadSave(): PlayerSave {
     const maximumClaims = Math.floor(LEVELS.length * 3 / STARS_PER_BOOSTER)
     const claims = Math.floor(nonnegativeInteger(data.totalStarsClaimedForBoosters) / STARS_PER_BOOSTER)
     save.totalStarsClaimedForBoosters = Math.min(maximumClaims, claims) * STARS_PER_BOOSTER
+    save.winStreak = nonnegativeInteger(data.winStreak)
+    save.zenBestScore = nonnegativeInteger(data.zenBestScore)
+    save.zenBestCascade = nonnegativeInteger(data.zenBestCascade)
+    save.zenState = parseZenState(data.zenState)
     save.settings = mergeSettings(data.settings, DEFAULT_SETTINGS)
     return save
   } catch {
@@ -143,6 +203,7 @@ export function recordLevelCompletion(
       },
     },
     boosters: { ...save.boosters },
+    winStreak: save.winStreak + 1,
   }
 
   const totalStars = getTotalStars(next)
@@ -155,6 +216,23 @@ export function recordLevelCompletion(
     awardedBoosters.push(booster)
   }
   return { save: next, awardedBoosters }
+}
+
+export function resetWinStreak(save: PlayerSave): PlayerSave {
+  return { ...save, winStreak: 0 }
+}
+
+export function saveZenSession(save: PlayerSave, zen: ZenSaveState): PlayerSave {
+  return {
+    ...save,
+    zenState: zen,
+    zenBestScore: Math.max(save.zenBestScore, zen.score),
+    zenBestCascade: Math.max(save.zenBestCascade, zen.maxCascade),
+  }
+}
+
+export function clearZenSession(save: PlayerSave): PlayerSave {
+  return { ...save, zenState: null }
 }
 
 export function consumeBooster(save: PlayerSave, booster: BoosterType): PlayerSave {

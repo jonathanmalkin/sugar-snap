@@ -106,6 +106,49 @@ interface Comet {
   arrived: boolean;
 }
 
+/** Payload a homing Sugar Bee carries to its target. */
+export type SeekerPayload = 'none' | 'striped-h' | 'striped-v' | 'wrapped';
+
+/** A glossy Sugar Bee swooping along a cubic Bézier toward its target. */
+interface BeeFlight {
+  x0: number;
+  y0: number;
+  c1x: number;
+  c1y: number;
+  c2x: number;
+  c2y: number;
+  x1: number;
+  y1: number;
+  t: number;
+  dur: number;
+  delay: number;
+  color: string;
+  size: number;
+  payload: SeekerPayload;
+  wing: number;
+  x: number;
+  y: number;
+  heading: number;
+  speed: number;
+  pollen: number;
+  trail: Array<[number, number]>;
+  arrived: boolean;
+  linger: number;
+  onArrive?: () => void;
+}
+
+/** Radiating starburst rays (bee impact). */
+interface Starburst {
+  x: number;
+  y: number;
+  r: number;
+  rays: number;
+  rot: number;
+  life: number;
+  max: number;
+  color: string;
+}
+
 interface Popup {
   x: number;
   y: number;
@@ -131,6 +174,29 @@ interface Banner {
 const MAX_DROPS = 700;
 const MAX_SPARKS = 500;
 const MAX_SHARDS = 260;
+const MAX_BEES = 48;
+const GOLD_POLLEN = '#ffd45c';
+const BEE_FLIGHT_DUR = 0.34;
+
+/** Seconds a Sugar Bee takes from (x0,y0) to (x1,y1): ~340ms, a touch longer on long hauls. */
+export function seekerFlightDuration(x0: number, y0: number, x1: number, y1: number, size: number): number {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  return BEE_FLIGHT_DUR * (0.92 + Math.min(0.35, len / Math.max(1, size * 18)));
+}
+
+const easeBee = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+
+function luminance(hex: string): number {
+  const [r, g, b] = hexRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/** Honey stripe that always contrasts with the bee's body colour. */
+function beeStripeColor(body: string): string {
+  const [r, g, b] = hexRgb(body);
+  const yellowish = r > 200 && g > 170 && b < 140;
+  return yellowish ? '#6b3108' : luminance(body) > 0.62 ? '#b86a00' : '#ffc23a';
+}
 
 function hexRgb(hex: string): [number, number, number] {
   let h = hex.replace('#', '');
@@ -158,6 +224,8 @@ export class ParticleSystem {
   private beams: Beam[] = [];
   private bolts: Bolt[] = [];
   private comets: Comet[] = [];
+  private bees: BeeFlight[] = [];
+  private starbursts: Starburst[] = [];
   private popups: Popup[] = [];
   private banners: Banner[] = [];
   private flashAlpha = 0;
@@ -186,7 +254,17 @@ export class ParticleSystem {
 
   get isBusy(): boolean {
     return (
-      this.dropCount + this.sparkCount + this.shardCount + this.rings.length + this.beams.length + this.bolts.length + this.comets.length + this.popups.length + this.banners.length >
+      this.dropCount +
+        this.sparkCount +
+        this.shardCount +
+        this.rings.length +
+        this.beams.length +
+        this.bolts.length +
+        this.comets.length +
+        this.bees.length +
+        this.starbursts.length +
+        this.popups.length +
+        this.banners.length >
       0
     );
   }
@@ -199,6 +277,8 @@ export class ParticleSystem {
     this.beams.length = 0;
     this.bolts.length = 0;
     this.comets.length = 0;
+    this.bees.length = 0;
+    this.starbursts.length = 0;
     this.popups.length = 0;
     this.banners.length = 0;
     this.flashAlpha = 0;
@@ -360,6 +440,85 @@ export class ParticleSystem {
     });
   }
 
+  /**
+   * Homing Sugar Bee: a glossy candy bee with fluttering glass wings swoops from
+   * (x0,y0) to (x1,y1) along a curved Bézier arc (~340ms), shedding a sparkling
+   * golden pollen trail, then lands with a juicy starburst and splash.
+   * `size` is the bee's body length (pass the cell size). onArrive fires on impact.
+   */
+  seekerFlight(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    color: string,
+    size: number,
+    payload: SeekerPayload = 'none',
+    onArrive?: () => void,
+    delay = 0,
+  ): void {
+    if (this.bees.length >= MAX_BEES) {
+      // Never drop the gameplay callback, even when the swarm is capped.
+      this.impact(x1, y1, color, size, payload);
+      onArrive?.();
+      return;
+    }
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    const L = Math.max(len, size * 2.4);
+    const nx = len > 0.001 ? -dy / len : 1;
+    const ny = len > 0.001 ? dx / len : 0;
+    // Swoop out to one side and up, then dive onto the target from the other.
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const loft = this.reducedMotion ? 0.35 : 1;
+    const c1x = x0 + dx * 0.12 + nx * side * L * 0.55 * loft;
+    const c1y = y0 + dy * 0.12 + ny * side * L * 0.55 * loft - size * 1.5 * loft;
+    const c2x = x0 + dx * 0.82 - nx * side * L * 0.22 * loft;
+    const c2y = y0 + dy * 0.82 - ny * side * L * 0.22 * loft - size * 0.9 * loft;
+    this.bees.push({
+      x0,
+      y0,
+      c1x,
+      c1y,
+      c2x,
+      c2y,
+      x1,
+      y1,
+      t: 0,
+      dur: seekerFlightDuration(x0, y0, x1, y1, size),
+      delay: Math.max(0, delay),
+      color,
+      size,
+      payload,
+      wing: Math.random() * Math.PI * 2,
+      x: x0,
+      y: y0,
+      heading: Math.atan2(c1y - y0, c1x - x0),
+      speed: 0,
+      pollen: 0,
+      trail: [],
+      arrived: false,
+      linger: 0,
+      onArrive,
+    });
+    // Launch puff.
+    this.sparkle(x0, y0, 5, GOLD_POLLEN, size * 0.3, size * 1.4);
+    this.shockwave(x0, y0, size * 0.75, color, 5, 0.28);
+  }
+
+  /** Bee landing: starburst rays, double ring, juicy splash and golden pollen. */
+  private impact(x: number, y: number, color: string, size: number, payload: SeekerPayload): void {
+    const big = payload !== 'none';
+    this.starbursts.push({ x, y, r: size * (big ? 1.25 : 0.95), rays: big ? 12 : 9, rot: Math.random() * Math.PI, life: 0.3, max: 0.3, color });
+    this.shockwave(x, y, size * (big ? 1.5 : 1.05), color, big ? 9 : 7, 0.38);
+    this.shockwave(x, y, size * 0.6, '#ffffff', 5, 0.24);
+    this.jellyBurst(x, y, color, big ? 12 : 8, 1.1, size);
+    this.sparkle(x, y, big ? 12 : 8, GOLD_POLLEN, size * 0.4, size * 1.8);
+    this.sparkle(x, y, 4, '#ffffff', size * 0.25, size * 1.2);
+    this.flash(big ? 0.08 : 0.04, '#fff6d8');
+  }
+
   /** Floating "+120" score popup. */
   scorePopup(x: number, y: number, points: number, color = '#ff4766', size = 22): void {
     const max = 0.95;
@@ -479,6 +638,65 @@ export class ParticleSystem {
     // Arrived comets linger briefly while their trail collapses into the target.
     this.comets = this.comets.filter((c) => !c.arrived || c.t < 1.25);
 
+    for (const b of this.bees) {
+      if (b.delay > 0) {
+        b.delay -= dt;
+        continue;
+      }
+      if (b.arrived) {
+        b.linger += dt;
+        if (b.trail.length) b.trail.pop();
+        continue;
+      }
+      b.t += dt / b.dur;
+      const t = Math.min(1, b.t);
+      const px = b.x;
+      const py = b.y;
+      const [x, y] = this.beePos(b, t);
+      b.x = x;
+      b.y = y;
+      const vx = x - px;
+      const vy = y - py;
+      const v = Math.hypot(vx, vy);
+      if (v > 0.01) {
+        // Smoothly bank toward the direction of travel.
+        const target = Math.atan2(vy, vx);
+        let da = target - b.heading;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        b.heading += da * Math.min(1, dt * 26);
+      }
+      b.speed = dt > 0 ? v / dt : 0;
+      b.wing += dt * (this.reducedMotion ? 22 : 58);
+      b.trail.unshift([x, y]);
+      if (b.trail.length > 16) b.trail.length = 16;
+      // Golden pollen shed along the swoop.
+      b.pollen += dt * (this.reducedMotion ? 45 : 110);
+      while (b.pollen >= 1) {
+        b.pollen -= 1;
+        const d = this.allocDrop();
+        if (d) {
+          const a = Math.random() * Math.PI * 2;
+          d.x = x + Math.cos(a) * b.size * 0.12;
+          d.y = y + Math.sin(a) * b.size * 0.12;
+          d.vx = -vx * 4 + Math.cos(a) * b.size * 0.6;
+          d.vy = -vy * 4 + Math.sin(a) * b.size * 0.6 - b.size * 0.3;
+          d.r = b.size * (0.025 + Math.random() * 0.03);
+          d.max = d.life = 0.3 + Math.random() * 0.3;
+          d.color = Math.random() < 0.7 ? GOLD_POLLEN : '#fff2b0';
+          d.gravity = b.size * 3;
+        }
+        if (Math.random() < 0.45) this.sparkle(x, y, 1, Math.random() < 0.6 ? GOLD_POLLEN : b.color, b.size * 0.18, b.size * 0.5);
+      }
+      if (b.t >= 1) {
+        b.arrived = true;
+        this.impact(b.x1, b.y1, b.color, b.size, b.payload);
+        b.onArrive?.();
+      }
+    }
+    this.bees = this.bees.filter((b) => !b.arrived || b.linger < 0.12);
+    this.starbursts = this.starbursts.filter((s) => (s.life -= dt) > 0);
+
     for (const b of this.banners) {
       b.life -= dt;
       if (this.reducedMotion) {
@@ -508,6 +726,16 @@ export class ParticleSystem {
       this.shakeX = 0;
       this.shakeY = 0;
     }
+  }
+
+  private beePos(b: BeeFlight, t: number): [number, number] {
+    const e = easeBee(t);
+    const u = 1 - e;
+    const a = u * u * u;
+    const bb = 3 * u * u * e;
+    const c = 3 * u * e * e;
+    const d = e * e * e;
+    return [a * b.x0 + bb * b.c1x + c * b.c2x + d * b.x1, a * b.y0 + bb * b.c1y + c * b.c2y + d * b.y1];
   }
 
   private cometPos(c: Comet, t: number): [number, number] {
@@ -675,6 +903,169 @@ export class ParticleSystem {
     });
   }
 
+  /**
+   * Glossy candy-glass bee body for flight, head facing +x: teardrop body with a
+   * studio softbox highlight, honey belly bands, stinger, eye and blush.
+   */
+  private beeSprite(color: string): HTMLCanvasElement {
+    return this.sprite(`bee:${color}`, 64, (ctx, S) => {
+      const cx = S * 0.52;
+      const cy = S * 0.54;
+      const rx = S * 0.36;
+      const ry = S * 0.27;
+      const body = new Path2D();
+      // Teardrop: round head at +x, tapering to a tail at -x.
+      body.moveTo(cx + rx, cy);
+      body.bezierCurveTo(cx + rx, cy - ry * 1.38, cx - rx * 0.55, cy - ry * 1.18, cx - rx * 1.02, cy - ry * 0.12);
+      body.quadraticCurveTo(cx - rx * 1.12, cy + ry * 0.06, cx - rx * 1.0, cy + ry * 0.22);
+      body.bezierCurveTo(cx - rx * 0.5, cy + ry * 1.2, cx + rx, cy + ry * 1.38, cx + rx, cy);
+      body.closePath();
+      // Stinger.
+      ctx.fillStyle = '#7a3d08';
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 0.98, cy - ry * 0.12);
+      ctx.lineTo(cx - rx * 1.32, cy + ry * 0.08);
+      ctx.lineTo(cx - rx * 0.98, cy + ry * 0.26);
+      ctx.closePath();
+      ctx.fill();
+      // Body: lit glass candy.
+      const g = ctx.createRadialGradient(cx + rx * 0.25, cy - ry * 0.45, ry * 0.1, cx, cy, rx * 1.15);
+      g.addColorStop(0, mix(color, '#ffffff', 0.55));
+      g.addColorStop(0.45, mix(color, '#ffffff', 0.08));
+      g.addColorStop(0.85, mix(color, '#000000', 0.25));
+      g.addColorStop(1, mix(color, '#000000', 0.45));
+      ctx.fillStyle = g;
+      ctx.fill(body);
+      ctx.save();
+      ctx.clip(body);
+      // Honey bands bowed over the dome.
+      const stripe = beeStripeColor(color);
+      ctx.strokeStyle = stripe;
+      ctx.lineWidth = S * 0.075;
+      for (const k of [-0.62, -0.28, 0.06]) {
+        const x = cx + rx * k;
+        ctx.beginPath();
+        ctx.moveTo(x + rx * 0.08, cy - ry * 1.3);
+        ctx.quadraticCurveTo(x - rx * 0.12, cy, x + rx * 0.08, cy + ry * 1.3);
+        ctx.stroke();
+      }
+      // Subsurface glow in the lower body and a glassy rim.
+      const sss = ctx.createRadialGradient(cx - rx * 0.1, cy + ry * 0.7, 0, cx - rx * 0.1, cy + ry * 0.7, rx);
+      sss.addColorStop(0, mix(color, '#ffffff', 0.5, 0.55));
+      sss.addColorStop(1, mix(color, '#ffffff', 0.3, 0));
+      ctx.fillStyle = sss;
+      ctx.fillRect(0, 0, S, S);
+      ctx.restore();
+      ctx.lineWidth = S * 0.02;
+      ctx.strokeStyle = mix(color, '#ffffff', 0.7, 0.7);
+      ctx.stroke(body);
+      // Rosy cheek, eye with catchlight, tiny smile.
+      ctx.fillStyle = 'rgba(255,140,170,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(cx + rx * 0.62, cy + ry * 0.42, S * 0.05, S * 0.032, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#12061a';
+      ctx.beginPath();
+      ctx.arc(cx + rx * 0.62, cy - ry * 0.05, S * 0.048, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(cx + rx * 0.58, cy - ry * 0.16, S * 0.018, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(60,10,30,0.8)';
+      ctx.lineWidth = S * 0.016;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx + rx * 0.86, cy + ry * 0.2, S * 0.035, 0.3, Math.PI * 0.85);
+      ctx.stroke();
+      // Softbox mirror pool across the crown.
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.ellipse(cx + rx * 0.05, cy - ry * 0.62, rx * 0.42, ry * 0.16, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(235,245,255,0.7)';
+      ctx.beginPath();
+      ctx.arc(cx + rx * 0.72, cy + ry * 0.55, S * 0.018, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  /** Translucent iridescent glass wing, root at the left-centre of the sprite. */
+  private wingSprite(): HTMLCanvasElement {
+    return this.sprite('bee-wing', 48, (ctx, S) => {
+      const path = new Path2D();
+      path.ellipse(S * 0.5, S * 0.5, S * 0.46, S * 0.26, 0, 0, Math.PI * 2);
+      const g = ctx.createLinearGradient(0, 0, S, S * 0.6);
+      g.addColorStop(0, 'rgba(200,240,255,0.55)');
+      g.addColorStop(0.35, 'rgba(255,215,250,0.45)');
+      g.addColorStop(0.65, 'rgba(255,250,200,0.45)');
+      g.addColorStop(1, 'rgba(190,255,225,0.5)');
+      ctx.fillStyle = g;
+      ctx.fill(path);
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = S * 0.045;
+      ctx.stroke(path);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = S * 0.02;
+      ctx.beginPath();
+      ctx.moveTo(S * 0.08, S * 0.52);
+      ctx.quadraticCurveTo(S * 0.5, S * 0.38, S * 0.9, S * 0.46);
+      ctx.moveTo(S * 0.3, S * 0.45);
+      ctx.quadraticCurveTo(S * 0.55, S * 0.62, S * 0.78, S * 0.66);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      ctx.ellipse(S * 0.62, S * 0.36, S * 0.16, S * 0.05, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  /** Draws one flying bee (trail is drawn separately, under the particles). */
+  private drawBee(ctx: Ctx, b: BeeFlight): void {
+    const fade = b.arrived ? Math.max(0, 1 - b.linger / 0.12) : 1;
+    if (fade <= 0) return;
+    const s = b.size;
+    const stretch = this.reducedMotion ? 1 : Math.min(1.22, 1 + b.speed / (s * 40));
+    const arrivePop = b.arrived ? 1 + b.linger * 3 : 1;
+    // Glow halo behind the bee (bigger when carrying a special payload).
+    const halo = s * (b.payload === 'none' ? 1.25 : 1.7);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.6 * fade;
+    ctx.drawImage(this.glowSprite(b.color), b.x - halo / 2, b.y - halo / 2, halo, halo);
+    if (b.payload !== 'none') {
+      const pulse = 0.5 + 0.5 * Math.sin(this.time * 30);
+      ctx.globalAlpha = (0.35 + 0.35 * pulse) * fade;
+      ctx.drawImage(this.glowSprite('#ffffff'), b.x - halo * 0.35, b.y - halo * 0.35, halo * 0.7, halo * 0.7);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = fade;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.heading);
+    // Keep the bee upright whichever way it flies.
+    if (Math.cos(b.heading) < 0) ctx.scale(1, -1);
+    ctx.scale(stretch * arrivePop, arrivePop / stretch);
+    const bw = s * 0.9;
+    // Back wing, body, front wing: fluttering by squashing each wing's height.
+    const flap = Math.sin(b.wing);
+    const wing = this.wingSprite();
+    const drawWing = (ang: number, sy: number, alpha: number) => {
+      ctx.save();
+      ctx.translate(-bw * 0.02, -bw * 0.16);
+      ctx.rotate(ang);
+      ctx.scale(1, Math.max(0.12, sy));
+      ctx.globalAlpha = fade * alpha;
+      ctx.drawImage(wing, 0, -bw * 0.2, bw * 0.62, bw * 0.4);
+      ctx.restore();
+    };
+    drawWing(-2.2 + flap * 0.25, 0.35 + 0.65 * Math.abs(Math.cos(b.wing + 0.6)), 0.75);
+    ctx.globalAlpha = fade;
+    ctx.drawImage(this.beeSprite(b.color), -bw / 2, -bw / 2, bw, bw);
+    drawWing(-1.75 - flap * 0.3, 0.3 + 0.7 * Math.abs(flap), 0.9);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   private glowSprite(color: string): HTMLCanvasElement {
     return this.sprite(`glow:${color}`, 64, (ctx, S) => {
       const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
@@ -837,6 +1228,60 @@ export class ParticleSystem {
       ctx.globalCompositeOperation = 'source-over';
     }
 
+    // Sugar Bee pollen ribbons (under the droplets and sparkles).
+    if (this.bees.length) {
+      ctx.globalCompositeOperation = 'lighter';
+      for (const b of this.bees) {
+        if (b.delay > 0 || b.trail.length < 2) continue;
+        for (let i = b.trail.length - 1; i > 0; i--) {
+          const [x0, y0] = b.trail[i];
+          const [x1, y1] = b.trail[i - 1];
+          const k = 1 - i / b.trail.length;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.lineWidth = b.size * (0.05 + 0.22 * k);
+          ctx.strokeStyle = withAlpha(GOLD_POLLEN, 0.42 * k);
+          ctx.stroke();
+          ctx.lineWidth = b.size * (0.02 + 0.08 * k);
+          ctx.strokeStyle = mix(b.color, '#ffffff', 0.5, 0.6 * k);
+          ctx.stroke();
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Bee impact starbursts.
+    for (const sb of this.starbursts) {
+      const p = 1 - sb.life / sb.max;
+      const e = 1 - Math.pow(1 - p, 3);
+      const a = 1 - p;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(sb.x, sb.y);
+      ctx.rotate(sb.rot);
+      ctx.lineCap = 'round';
+      for (let i = 0; i < sb.rays; i++) {
+        const ang = (i / sb.rays) * Math.PI * 2;
+        const long = i % 2 === 0 ? 1 : 0.62;
+        const r0 = sb.r * 0.22 * e;
+        const r1 = sb.r * (0.3 + 0.7 * e) * long;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(ang) * r0, Math.sin(ang) * r0);
+        ctx.lineTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
+        ctx.lineWidth = sb.r * 0.16 * a;
+        ctx.strokeStyle = withAlpha(sb.color, 0.5 * a);
+        ctx.stroke();
+        ctx.lineWidth = sb.r * 0.06 * a;
+        ctx.strokeStyle = `rgba(255,255,255,${0.9 * a})`;
+        ctx.stroke();
+      }
+      const core = sb.r * (0.9 - 0.4 * p);
+      ctx.globalAlpha = a;
+      ctx.drawImage(this.glowSprite(GOLD_POLLEN), -core / 2, -core / 2, core, core);
+      ctx.restore();
+    }
+
     // Droplets.
     for (let i = 0; i < this.dropCount; i++) {
       const d = this.drops[i];
@@ -896,6 +1341,12 @@ export class ParticleSystem {
       ctx.restore();
     }
     ctx.globalCompositeOperation = 'source-over';
+
+    // Flying Sugar Bees ride above every particle.
+    for (const b of this.bees) {
+      if (b.delay > 0) continue;
+      this.drawBee(ctx, b);
+    }
 
     // Score popups.
     ctx.textAlign = 'center';

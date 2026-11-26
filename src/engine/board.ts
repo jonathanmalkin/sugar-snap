@@ -1,3 +1,4 @@
+import type { ZenSaveState } from '../state/storageTypes';
 import { ALL_CANDY_COLORS } from './types';
 import type {
   Candy,
@@ -86,7 +87,7 @@ export function pickColor(colors: readonly CandyColor[], rng: Rng, forbidden?: S
   return list[Math.min(list.length - 1, Math.floor(rng() * list.length))];
 }
 
-/** Colours that would complete a straight run of three through (row, col). */
+/** Colours that would complete a match through (row, col). */
 export function forbiddenColorsAt(grid: Cell[][], row: number, col: number): Set<CandyColor> {
   const f = new Set<CandyColor>();
   const at = (r: number, c: number) => matchableColor(grid[r]?.[c]);
@@ -102,6 +103,11 @@ export function forbiddenColorsAt(grid: Cell[][], row: number, col: number): Set
     const x = at(row + a, col + b);
     if (x && x === at(row + c, col + d)) f.add(x);
   }
+  for (const dr of [-1, 1])
+    for (const dc of [-1, 1]) {
+      const x = at(row + dr, col);
+      if (x && x === at(row, col + dc) && x === at(row + dr, col + dc)) f.add(x);
+    }
   return f;
 }
 
@@ -231,7 +237,39 @@ export function createGameState(level: LevelDef, rng: Rng = Math.random): GameSt
   return createStateFromGrid(level, grid, { nextCandyId: ids.next, ingredientsRemainingToSpawn: remaining });
 }
 
-const SHAPE_PRIORITY = { line5: 50, lt: 40, line4: 30, line3: 10 } as const;
+export function applyBakersGift(
+  state: GameState,
+  winStreak: number,
+  rng: Rng = Math.random,
+): { state: GameState; gifts: Array<{ pos: GridPos; special: SpecialType }> } {
+  const gifts: Array<{ pos: GridPos; special: SpecialType }> = [];
+  const next = cloneState(state);
+  if (state.level.mode === 'zen' || winStreak < 1) return { state: next, gifts };
+
+  const candidates = next.grid.flat().filter((cell) => isSwappableCell(cell) && isRegularCandy(cell.candy));
+  const specials: SpecialType[] = [rng() < 0.5 ? 'striped-h' : 'striped-v'];
+  if (winStreak >= 3) specials.push('wrapped');
+  if (winStreak >= 2) specials.push('seeker');
+  for (const special of specials) {
+    if (!candidates.length) break;
+    const index = Math.min(candidates.length - 1, Math.floor(rng() * candidates.length));
+    const [cell] = candidates.splice(index, 1);
+    cell.candy!.special = special;
+    gifts.push({ pos: { row: cell.row, col: cell.col }, special });
+  }
+  return { state: next, gifts };
+}
+
+export function restoreZenState(level: LevelDef, zen: ZenSaveState): GameState {
+  return createStateFromGrid(level, cloneGrid(zen.grid), {
+    score: zen.score,
+    maxCascade: zen.maxCascade,
+    totalMovesMade: zen.totalMovesMade,
+    nextCandyId: zen.nextCandyId,
+  });
+}
+
+const SHAPE_PRIORITY = { line5: 50, lt: 40, square2x2: 35, line4: 30, line3: 10 } as const;
 
 function swapPriority(grid: Cell[][], from: GridPos, to: GridPos): number {
   const a = getCell(grid, from)!;
@@ -348,7 +386,7 @@ export function shuffleBoard(
   const place = (order: Candy[]) => positions.forEach((p, i) => (grid[p.row][p.col].candy = order[i]));
 
   let done = false;
-  let lastClean: Candy[] | null = null;
+  let lastClean: Candy[] | null = findMatches(grid).length === 0 ? candies : null;
   for (let attempt = 0; attempt < 200 && candies.length; attempt++) {
     const order = shuffleInPlace([...candies], rng);
     place(order);
@@ -445,12 +483,12 @@ export function computeObjectivesProgress(
 }
 
 const SPEC_COLORS: Record<string, CandyColor> = { r: 'red', o: 'orange', y: 'yellow', g: 'green', b: 'blue', p: 'purple' };
-const SPEC_SPECIALS: Record<string, SpecialType> = { h: 'striped-h', v: 'striped-v', w: 'wrapped' };
+const SPEC_SPECIALS: Record<string, SpecialType> = { h: 'striped-h', v: 'striped-v', w: 'wrapped', s: 'seeker' };
 
 /**
  * Build a grid from a compact text spec (fixtures, tutorials, debugging).
  * One string per row, whitespace-separated tokens:
- *   r o y g b p   regular candy, optionally followed by h | v | w (striped-h, striped-v, wrapped)
+ *   r o y g b p   regular candy, optionally followed by h | v | w | s (striped-h, striped-v, wrapped, seeker)
  *   B             colour bomb       I / N   cherry / hazelnut ingredient
  *   .             empty playable    #       hole
  *   1 2 3         frosting layers   X       chocolate

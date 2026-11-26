@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react';
 import type { ISoundEngine } from '../audio/soundTypes';
-import { createGameState } from '../engine';
+import { applyBakersGift, createGameState, restoreZenState } from '../engine';
 import type { BoosterType, GameState, ObjectiveProgress } from '../engine/types';
-import { getChapterById, getLevelById, LEVELS } from '../levels';
-import { GameController } from '../renderer';
-import type { PlayerSave } from '../state/storageTypes';
+import { getChapterById, getLevelById, LEVELS, ZEN_CHAPTER, ZEN_LEVEL } from '../levels';
+import { GameController, type GameControllerOptions } from '../renderer';
+import type { PlayerSave, ZenSaveState } from '../state/storageTypes';
 import { BoosterDock } from './BoosterDock';
 import { CandyIcon } from './CandyIcon';
 import { HudPanel, TutorialTip } from './HudPanel';
@@ -35,7 +35,11 @@ export interface LevelWinRecord {
   isNewBest: boolean;
 }
 
+export type GameMode = 'saga' | 'zen';
+
 export interface GameScreenProps {
+  /** 'saga' plays `levelId`; 'zen' plays the endless ZEN_LEVEL board. */
+  mode: GameMode;
   levelId: number;
   save: PlayerSave;
   sound: ISoundEngine;
@@ -44,10 +48,17 @@ export interface GameScreenProps {
   overlayOpen: boolean;
   onExitToMap: () => void;
   onOpenSettings: () => void;
-  onPlayLevel: (levelId: number) => void;
+  /** `showIntro: false` flows straight into the board (1-tap Next Level). */
+  onPlayLevel: (levelId: number, showIntro?: boolean) => void;
   onBoosterConsumed: (booster: BoosterType) => void;
   onLevelWon: (levelId: number, score: number, stars: 1 | 2 | 3) => LevelWinRecord;
   onUnlockAudio: () => void;
+  /** Saga loss or retry: the win streak ends. */
+  onStreakReset: () => void;
+  /** Zen: every settled move auto-saves. */
+  onZenSnapshot: (zen: ZenSaveState) => void;
+  /** Zen: New Board clears the saved session. */
+  onZenReset: () => void;
 }
 
 type ModalState =
@@ -89,9 +100,10 @@ function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
 }
 
 export function GameScreen(props: GameScreenProps): ReactElement {
-  const { levelId, save, sound, showIntro, overlayOpen, onExitToMap, onOpenSettings, onPlayLevel } = props;
-  const level = useMemo(() => getLevelById(levelId), [levelId]);
-  const chapter = useMemo(() => getChapterById(level.chapterId), [level]);
+  const { mode, levelId, save, sound, showIntro, overlayOpen, onExitToMap, onOpenSettings, onPlayLevel } = props;
+  const isZen = mode === 'zen';
+  const level = useMemo(() => (isZen ? ZEN_LEVEL : getLevelById(levelId)), [isZen, levelId]);
+  const chapter = useMemo(() => (isZen ? ZEN_CHAPTER : getChapterById(level.chapterId)), [isZen, level]);
   const { colorblindMode, reducedMotion } = save.settings;
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -99,6 +111,9 @@ export function GameScreen(props: GameScreenProps): ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controllerRef = useRef<GameController | null>(null);
   const endTimerRef = useRef<number | null>(null);
+  const dealTimerRef = useRef<number | null>(null);
+  /** Zen: true until New Board, so the first board resumes the saved session. */
+  const zenResumeRef = useRef(true);
 
   const [runKey, setRunKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(() => ({
@@ -110,9 +125,12 @@ export function GameScreen(props: GameScreenProps): ReactElement {
     activeBooster: null,
     isAnimating: false,
   }));
-  const [modal, setModal] = useState<ModalState>(showIntro ? { kind: 'intro' } : { kind: 'none' });
+  const [modal, setModal] = useState<ModalState>(showIntro && !isZen ? { kind: 'intro' } : { kind: 'none' });
   const [activeBooster, setActiveBooster] = useState<BoosterType | null>(null);
   const [tipDismissed, setTipDismissed] = useState(false);
+  const [giftStreak, setGiftStreak] = useState(0);
+  const [zenCascade, setZenCascade] = useState(0);
+  const [dealing, setDealing] = useState(false);
 
   // Latest props/handlers for controller callbacks (controller is created once per run).
   const latest = useRef(props);
@@ -175,9 +193,26 @@ export function GameScreen(props: GameScreenProps): ReactElement {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const initialState = createGameState(level);
+    const currentSave = latest.current.save;
+
+    let initialState: GameState;
+    let gifted = 0;
+    if (isZen) {
+      const saved = zenResumeRef.current ? currentSave.zenState : null;
+      initialState = saved ? restoreZenState(level, saved) : createGameState(level);
+    } else {
+      initialState = createGameState(level);
+      const streak = currentSave.winStreak;
+      if (streak >= 1) {
+        const baked = applyBakersGift(initialState, streak);
+        initialState = baked.state;
+        if (baked.gifts.length > 0) gifted = streak;
+      }
+    }
     setSnapshot(snapshotFrom(initialState));
     setActiveBooster(null);
+    setGiftStreak(gifted);
+    setZenCascade(initialState.maxCascade);
 
     let recordedWin: { score: number; stars: 1 | 2 | 3; record: LevelWinRecord } | null = null;
     const ensureWinPersisted = (result: ControllerEnd): { score: number; stars: 1 | 2 | 3; record: LevelWinRecord } => {
@@ -187,8 +222,14 @@ export function GameScreen(props: GameScreenProps): ReactElement {
       recordedWin = { score: result.score, stars, record };
       return recordedWin;
     };
+    let streakEnded = false;
+    const endStreak = () => {
+      if (streakEnded) return;
+      streakEnded = true;
+      latest.current.onStreakReset();
+    };
 
-    const controller = new GameController({
+    const options: GameControllerOptions = {
       canvas,
       initialState,
       chapter,
@@ -205,9 +246,13 @@ export function GameScreen(props: GameScreenProps): ReactElement {
         latest.current.onBoosterConsumed(booster);
       },
       onLevelResolved: (result: ControllerEnd) => {
+        if (isZen) return;
         if (result.won) ensureWinPersisted(result);
+        else endStreak();
       },
       onLevelEnd: (result: ControllerEnd) => {
+        // Endless Zen never ends: no Victory or Out-of-Moves.
+        if (isZen) return;
         if (endTimerRef.current !== null) window.clearTimeout(endTimerRef.current);
         const delay = displayRef.current.reducedMotion ? 150 : 450;
         if (result.won) {
@@ -216,13 +261,22 @@ export function GameScreen(props: GameScreenProps): ReactElement {
             setModal({ kind: 'won', score: persisted.score, stars: persisted.stars, record: persisted.record });
           }, delay);
         } else {
+          endStreak();
           endTimerRef.current = window.setTimeout(() => {
             sound.playDefeat();
             setModal((m) => (m.kind === 'won' ? m : { kind: 'lost', score: result.score }));
           }, delay);
         }
       },
-    });
+    };
+    if (isZen) {
+      options.onZenSnapshot = (zen: ZenSaveState) => {
+        setZenCascade((prev) => Math.max(prev, zen.maxCascade));
+        latest.current.onZenSnapshot(zen);
+      };
+    }
+
+    const controller = new GameController(options);
     controllerRef.current = controller;
     fitBoard();
     controller.start();
@@ -233,8 +287,8 @@ export function GameScreen(props: GameScreenProps): ReactElement {
       controller.destroy();
       if (controllerRef.current === controller) controllerRef.current = null;
     };
-    // runKey restarts the level from scratch (Retry / Replay).
-  }, [level, chapter, sound, runKey, fitBoard]);
+    // runKey restarts the level from scratch (Retry / Replay / New Board).
+  }, [isZen, level, chapter, sound, runKey, fitBoard]);
 
   useEffect(() => {
     controllerRef.current?.setDisplayOptions({ colorblindMode, reducedMotion });
@@ -245,27 +299,53 @@ export function GameScreen(props: GameScreenProps): ReactElement {
     setActiveBooster(snapshot.activeBooster);
   }, [snapshot.activeBooster]);
 
+  useEffect(
+    () => () => {
+      if (dealTimerRef.current !== null) window.clearTimeout(dealTimerRef.current);
+    },
+    []
+  );
+
   /* ---------- actions ---------- */
 
-  const restart = useCallback(() => {
+  /** Replay after a win keeps the streak alive. */
+  const replay = useCallback(() => {
     setModal({ kind: 'none' });
     setRunKey((k) => k + 1);
   }, []);
 
-  const selectBooster = useCallback(
-    (booster: BoosterType) => {
-      const controller = controllerRef.current;
-      if (!controller) return;
-      if ((latest.current.save.boosters[booster] ?? 0) <= 0) return;
-      if (booster === 'shuffle') {
-        controller.useShuffleBooster();
-        return;
-      }
-      setActiveBooster(booster);
-      controller.setActiveBooster(booster);
-    },
-    []
-  );
+  /** Retry (mid-level or after running out of moves) gently ends the streak. */
+  const retry = useCallback(() => {
+    latest.current.onStreakReset();
+    setModal({ kind: 'none' });
+    setRunKey((k) => k + 1);
+  }, []);
+
+  /** Zen: forget the saved session and deal a fresh board with a soft fade. */
+  const newZenBoard = useCallback(() => {
+    zenResumeRef.current = false;
+    latest.current.onZenReset();
+    setRunKey((k) => k + 1);
+    if (displayRef.current.reducedMotion) return;
+    setDealing(true);
+    if (dealTimerRef.current !== null) window.clearTimeout(dealTimerRef.current);
+    dealTimerRef.current = window.setTimeout(() => {
+      dealTimerRef.current = null;
+      setDealing(false);
+    }, 620);
+  }, []);
+
+  const selectBooster = useCallback((booster: BoosterType) => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    if ((latest.current.save.boosters[booster] ?? 0) <= 0) return;
+    if (booster === 'shuffle') {
+      controller.useShuffleBooster();
+      return;
+    }
+    setActiveBooster(booster);
+    controller.setActiveBooster(booster);
+  }, []);
 
   const cancelBooster = useCallback(() => {
     setActiveBooster(null);
@@ -287,10 +367,13 @@ export function GameScreen(props: GameScreenProps): ReactElement {
   const playing = snapshot.status === 'playing';
   const dockLocked = !playing || snapshot.isAnimating || modal.kind !== 'none';
   const firstMoveMade = snapshot.movesLeft < level.moves;
-  const showTip = Boolean(level.tutorialHint) && !tipDismissed && !firstMoveMade && modal.kind === 'none';
+  const showTip = !isZen && Boolean(level.tutorialHint) && !tipDismissed && !firstMoveMade && modal.kind === 'none';
   const progress = save.levels[level.id];
   const nextLevelId = level.id + 1;
   const hasNextLevel = LEVELS.some((l) => l.id === nextLevelId);
+  const zenStats = isZen
+    ? { bestScore: save.zenBestScore, bestCascade: Math.max(save.zenBestCascade, zenCascade) }
+    : undefined;
 
   const themeStyle = {
     '--ch-accent': chapter.accentColor,
@@ -300,23 +383,41 @@ export function GameScreen(props: GameScreenProps): ReactElement {
   } as CSSProperties;
 
   return (
-    <div className="game-screen" style={themeStyle} data-booster={activeBooster ?? undefined}>
+    <div
+      className={`game-screen${isZen ? ' game-screen--zen' : ''}`}
+      style={themeStyle}
+      data-booster={activeBooster ?? undefined}
+      data-mode={mode}
+    >
       <aside className="studio" aria-label="Game panel">
         <nav className="game-nav" aria-label="Game">
           <button type="button" className="icon-btn" onClick={onExitToMap} aria-label="Back to map">
             <CandyIcon kind="map" size={24} />
             <span className="icon-btn__label">Map</span>
           </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={restart}
-            aria-label="Restart level"
-            disabled={snapshot.isAnimating && playing}
-          >
-            <CandyIcon kind="retry" size={24} />
-            <span className="icon-btn__label">Retry</span>
-          </button>
+          {isZen ? (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={newZenBoard}
+              aria-label="New board"
+              disabled={snapshot.isAnimating}
+            >
+              <CandyIcon kind="shuffle" size={24} />
+              <span className="icon-btn__label">New Board</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={retry}
+              aria-label="Restart level"
+              disabled={snapshot.isAnimating && playing}
+            >
+              <CandyIcon kind="retry" size={24} />
+              <span className="icon-btn__label">Retry</span>
+            </button>
+          )}
           <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="Settings">
             <CandyIcon kind="settings" size={24} />
             <span className="icon-btn__label">Settings</span>
@@ -330,6 +431,9 @@ export function GameScreen(props: GameScreenProps): ReactElement {
           movesLeft={snapshot.movesLeft}
           objectives={snapshot.objectives}
           stars={snapshot.stars}
+          mode={mode}
+          zenStats={zenStats}
+          giftStreak={giftStreak}
         />
 
         <BoosterDock
@@ -342,27 +446,36 @@ export function GameScreen(props: GameScreenProps): ReactElement {
       </aside>
 
       <main className="stage">
-        {showTip && level.tutorialHint ? (
-          <TutorialTip hint={level.tutorialHint} onDismiss={() => setTipDismissed(true)} />
-        ) : null}
         <div className="board-slot" ref={stageRef}>
-          <div className={`board-frame${activeBooster ? ' is-targeting' : ''}`} ref={boardRef}>
+          <div
+            className={`board-frame${activeBooster ? ' is-targeting' : ''}${dealing ? ' is-dealing' : ''}`}
+            ref={boardRef}
+          >
             <canvas
               ref={canvasRef}
               className="board-canvas"
-              aria-label={`Level ${level.id} board, ${level.cols} by ${level.rows}. Swipe or tap two neighboring candies to swap.`}
+              aria-label={
+                isZen
+                  ? `Endless Zen board, ${level.cols} by ${level.rows}. Swipe or tap two neighboring candies to swap.`
+                  : `Level ${level.id} board, ${level.cols} by ${level.rows}. Swipe or tap two neighboring candies to swap.`
+              }
               role="img"
             />
           </div>
         </div>
-        {snapshot.status === 'sugar-crush' ? (
-          <div className="sugar-crush-banner" role="status">
-            Sugar Snap!
-          </div>
+        {!isZen && snapshot.status === 'sugar-crush' ? (
+          <button
+            type="button"
+            className="sugar-crush-banner"
+            onClick={() => controllerRef.current?.skipSugarCrush()}
+            aria-label="Skip Sugar Snap bonus animation and go to results"
+          >
+            Sugar Snap! · Tap to Skip
+          </button>
         ) : null}
       </main>
 
-      {modal.kind === 'intro' && !overlayOpen ? (
+      {!isZen && modal.kind === 'intro' && !overlayOpen ? (
         <LevelIntroSheet
           level={level}
           chapter={chapter}
@@ -377,7 +490,7 @@ export function GameScreen(props: GameScreenProps): ReactElement {
         />
       ) : null}
 
-      {modal.kind === 'won' ? (
+      {!isZen && modal.kind === 'won' ? (
         <VictoryModal
           level={level}
           score={modal.score}
@@ -386,20 +499,25 @@ export function GameScreen(props: GameScreenProps): ReactElement {
           isNewBest={modal.record.isNewBest}
           awardedBoosters={modal.record.awardedBoosters}
           hasNextLevel={hasNextLevel}
+          winStreak={save.winStreak}
           sound={sound}
           reducedMotion={reducedMotion}
-          onNext={() => onPlayLevel(nextLevelId)}
-          onReplay={restart}
+          onNext={() => {
+            sound.unlock();
+            latest.current.onUnlockAudio();
+            onPlayLevel(nextLevelId, false);
+          }}
+          onReplay={replay}
           onMap={onExitToMap}
         />
       ) : null}
 
-      {modal.kind === 'lost' ? (
+      {!isZen && modal.kind === 'lost' ? (
         <OutOfMovesModal
           level={level}
           objectives={snapshot.objectives}
           score={modal.score}
-          onRetry={restart}
+          onRetry={retry}
           onMap={onExitToMap}
         />
       ) : null}

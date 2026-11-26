@@ -109,6 +109,8 @@ export class SoundEngine implements ISoundEngine {
   private musicBeat = 0;
 
   private lastPlayed = new Map<string, number>();
+  private seekerStep = 0;
+  private lastSeekerAt = -1;
 
   private readonly onVisibility = (): void => {
     const ctx = this.ctx;
@@ -518,6 +520,11 @@ export class SoundEngine implements ISoundEngine {
         notes = [72, 76, 79, 83, 86, 91, 96];
         step = 0.045;
         break;
+      case 'seeker':
+        // Cheerful bee-buzz arpeggio: a bouncy G-major pentatonic hop up and a skip back.
+        notes = [79, 83, 86, 91, 88, 95];
+        step = 0.05;
+        break;
       default:
         notes = [84, 88];
     }
@@ -525,6 +532,12 @@ export class SoundEngine implements ISoundEngine {
     if (special === 'wrapped') this.tone({ freq: mtof(48), t, dur: 0.25, gain: 0.12, type: 'sine', attack: 0.004 });
     if (special === 'color-bomb') {
       this.tone({ freq: mtof(60), freqEnd: mtof(84), glide: 0.3, t, dur: 0.35, gain: 0.06, type: 'triangle', attack: 0.02, lowpass: 3000 });
+    }
+    if (special === 'seeker') {
+      // Soft wing flutter under the arpeggio.
+      for (let i = 0; i < 6; i++) {
+        this.tone({ freq: mtof(i % 2 ? 86 : 83), t: t + i * 0.024, dur: 0.035, gain: 0.035, type: 'triangle', attack: 0.002, lowpass: 5200 });
+      }
     }
     this.shimmer(t + notes.length * step, special === 'color-bomb' ? 6 : 3, 0.035);
   }
@@ -571,6 +584,38 @@ export class SoundEngine implements ISoundEngine {
     this.tone({ freq: f * 0.75, freqEnd: f, glide: 0.03, t, dur: 0.18, gain: 0.08, type: 'triangle', attack: 0.001 });
     this.bell(f, t + 0.01, 0.06, 0.28);
     this.noise({ t, dur: 0.05, gain: 0.04, filter: 'bandpass', freq: 6500, q: 4 });
+  }
+
+  /**
+   * Sugar Bee launch: a fluttering-wing trill that climbs into a marimba + glass
+   * bell landing, over an airy upward whoosh. Launches close together step up a
+   * pentatonic ladder and get quieter, so a Color Bomb + Seeker swarm plays as a
+   * rising, musical run instead of a harsh pile-up.
+   */
+  playSeekerLaunch(): void {
+    const t = this.sfxTime();
+    if (t === null || this.rateLimited('seeker', 0.045)) return;
+    this.seekerStep = t - this.lastSeekerAt < 0.7 ? this.seekerStep + 1 : 0;
+    this.lastSeekerAt = t;
+    const step = this.seekerStep;
+    const swarm = 1 / Math.sqrt(1 + step * 0.6);
+    // G4 A4 B4 D5 E5 G5, then the same ladder an octave up (capped).
+    const root = CASCADE_MIDI[step % 6] - 5 + (step >= 6 ? 12 : 0);
+
+    // Fluttering wing trill: quick alternating whole steps gliding upward.
+    const flaps = 7;
+    for (let i = 0; i < flaps; i++) {
+      const m = root + (i % 2 ? 2 : 0) + (i / flaps) * 7;
+      this.tone({ freq: mtof(m), t: t + i * 0.021, dur: 0.04, gain: 0.05 * swarm * (0.6 + 0.4 * (i / flaps)), type: 'triangle', attack: 0.002, lowpass: 4800 });
+    }
+    // Airy whoosh rising with the bee.
+    this.noise({ t, dur: 0.26, gain: 0.05 * swarm, filter: 'bandpass', freq: 900, freqEnd: 6200, q: 1.6, attack: 0.04 });
+    // Sparkly landing: marimba an octave up, bell fifth and octave above that.
+    const land = t + flaps * 0.021;
+    this.marimba(mtof(root + 12), land, 0.13 * swarm, 0.32);
+    this.bell(mtof(root + 19), land + 0.03, 0.055 * swarm, 0.38);
+    if (step < 4) this.bell(mtof(root + 24), land + 0.06, 0.04 * swarm, 0.34);
+    if (step === 0) this.shimmer(land + 0.05, 3, 0.022, 98, 0.03);
   }
 
   playBoardWipe(): void {

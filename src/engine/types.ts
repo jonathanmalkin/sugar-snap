@@ -9,7 +9,7 @@ export const ALL_CANDY_COLORS: readonly CandyColor[] = [
   'purple',
 ] as const;
 
-export type SpecialType = 'none' | 'striped-h' | 'striped-v' | 'wrapped' | 'color-bomb';
+export type SpecialType = 'none' | 'striped-h' | 'striped-v' | 'wrapped' | 'color-bomb' | 'seeker';
 
 export type IngredientType = 'cherry' | 'hazelnut';
 
@@ -91,6 +91,8 @@ export interface LevelDef {
   layout: string[];
   ingredientSpawns?: IngredientSpawnRule[];
   tutorialHint?: string;
+  /** 'zen' disables move limits, win/lose endings, and sugar-crush for truly endless flow. */
+  mode?: 'saga' | 'zen';
 }
 
 export interface ChapterDef {
@@ -131,7 +133,14 @@ export type AnimationEvent =
       origin: GridPos;
       targets: GridPos[];
       color: CandyColor | 'none';
-      convertTo?: 'striped' | 'wrapped';
+      convertTo?: 'striped' | 'wrapped' | 'seeker';
+    }
+  | {
+      type: 'seeker-fly';
+      origin: GridPos;
+      target: GridPos;
+      color: CandyColor;
+      payload?: 'none' | 'striped-h' | 'striped-v' | 'wrapped';
     }
   | { type: 'board-wipe'; origin: GridPos; affected: GridPos[] }
   | { type: 'blocker-hit'; pos: GridPos; blocker: 'frosting' | 'lock' | 'chocolate'; remaining: number }
@@ -205,7 +214,7 @@ export interface ValidMove {
 export interface MatchGroup {
   cells: GridPos[];
   color: CandyColor;
-  shape: 'line3' | 'line4' | 'line5' | 'lt';
+  shape: 'line3' | 'line4' | 'line5' | 'lt' | 'square2x2';
   spawnSpecial: SpecialType;
   spawnPos: GridPos;
 }

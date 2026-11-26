@@ -30,8 +30,9 @@ import type {
   ValidMove,
 } from '../engine/types';
 import type { ISoundEngine } from '../audio/soundTypes';
+import type { ZenSaveState } from '../state/storageTypes';
 import { BoardRenderer, type CandyVisual, type HintFx, type OozeFx } from './boardRenderer';
-import { ParticleSystem } from './particles';
+import { ParticleSystem, seekerFlightDuration } from './particles';
 import { GOLD, candyColorHex } from './candySprites';
 
 export interface GameControllerOptions {
@@ -54,6 +55,8 @@ export interface GameControllerOptions {
   /** Fires as soon as the final win/loss state is computed (before finale animation ends) so progress persists immediately. */
   onLevelResolved?: (result: { won: boolean; score: number; stars: 0 | 1 | 2 | 3; maxCascade: number }) => void;
   onLevelEnd: (result: { won: boolean; score: number; stars: 0 | 1 | 2 | 3; maxCascade: number }) => void;
+  /** Zen mode only: fires with a restorable snapshot each time a turn or booster settles. */
+  onZenSnapshot?: (zen: ZenSaveState) => void;
 }
 
 interface Tween {
@@ -85,12 +88,24 @@ interface PointerTrack {
   swiped: boolean;
   /** Set when pointerdown hits a neighbor of an already-selected cell; committed on release if no swipe happens. */
   pendingTapSwap: GridPos | null;
+  /** Started while the board was still settling: a swipe is buffered, a tap does nothing. */
+  buffered: boolean;
+}
+
+/** One-slot early-swipe buffer: a swipe made while the board settles, replayed the instant it can be. */
+interface BufferedSwap {
+  from: GridPos;
+  to: GridPos;
+  expiresAt: number;
 }
 
 /** Bonus-round banner: the game's own word, matching the engine's choice not to emit a finale callout. */
 const FINALE_BANNER = 'Sugar Snap!';
 const HINT_DELAY = 4.5;
 const SWIPE_THRESHOLD = 0.28;
+/** How long an early swipe stays valid while the board finishes settling (ms). */
+const SWIPE_BUFFER_MS = 400;
+const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const SPRING_K = 520;
 const SPRING_C = 15;
 const ROT_K = 380;
@@ -146,6 +161,7 @@ export class GameController {
   private hover: GridPos | null = null;
   private hoverId: number | null = null;
   private pointer: PointerTrack | null = null;
+  private bufferedSwap: BufferedSwap | null = null;
   private unlocked = false;
 
   private idle = 0;
@@ -159,6 +175,7 @@ export class GameController {
   private lastCrunchSound = -1;
   private burstsThisFrame = 0;
   private sugarCrushAnnounced = false;
+  private sugarCrushResolved: GameState | null = null;
   private cometIndex = 0;
 
   private resizeObserver: ResizeObserver | null = null;
@@ -240,6 +257,7 @@ export class GameController {
     window.removeEventListener('resize', this.onWindowResize);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.bufferedSwap = null;
     this.flushTweens();
     this.particles.clear();
     this.visuals.clear();
@@ -269,6 +287,7 @@ export class GameController {
     }
     if (booster === this.activeBooster) return;
     if (booster && !this.canInteract()) return;
+    if (booster) this.bufferedSwap = null;
     this.activeBooster = booster;
     this.deselect();
     this.idle = 0;
@@ -287,6 +306,7 @@ export class GameController {
     }
     if (!result.valid) return false;
     if (this.activeBooster) this.activeBooster = null;
+    this.bufferedSwap = null;
     this.deselect();
     this.sound.playBooster();
     this.opts.onBoosterConsumed('shuffle');
@@ -308,6 +328,7 @@ export class GameController {
     this.hover = null;
     this.hoverId = null;
     this.pointer = null;
+    this.bufferedSwap = null;
     this.activeBooster = null;
     this.idle = 0;
     this.hintMove = undefined;
@@ -634,8 +655,52 @@ export class GameController {
         this.finalSync();
         if (!this.ended && (this.state.status === 'won' || this.state.status === 'lost')) this.finish();
         this.emit();
+        if (result.valid) this.emitZenSnapshot();
+        this.drainBufferedSwap();
       }
     }
+  }
+
+  /** Zen mode: hand the settled board to the host so endless play survives a reload. */
+  private emitZenSnapshot(): void {
+    if (this.busy > 0 || this.state.level.mode !== 'zen' || !this.opts.onZenSnapshot) return;
+    try {
+      this.opts.onZenSnapshot({
+        grid: cloneGrid(this.state.grid),
+        score: this.state.score,
+        maxCascade: this.state.maxCascade,
+        totalMovesMade: this.state.totalMovesMade,
+        nextCandyId: this.state.nextCandyId,
+      });
+    } catch (err) {
+      console.error('[GameController] onZenSnapshot threw', err);
+    }
+  }
+
+  /** Replays a swipe made while the board was settling, if it is still fresh. */
+  private drainBufferedSwap(): void {
+    const b = this.bufferedSwap;
+    if (!b) return;
+    this.bufferedSwap = null;
+    if (nowMs() > b.expiresAt || !this.canInteract() || this.activeBooster === 'hammer') return;
+    this.deselect();
+    this.attemptSwap(b.from, b.to);
+  }
+
+  /** Immediately finishes an in-progress Sugar Snap bonus cascade, awarding the full resolved score. */
+  skipSugarCrush(): void {
+    if (!this.sugarCrushResolved || this.ended || this.destroyed) return;
+    const resolved = this.sugarCrushResolved;
+    this.sugarCrushResolved = null;
+    this.generation++;
+    this.tweens = [];
+    this.dying = [];
+    this.oozes = [];
+    this.bufferedSwap = null;
+    this.busy = 0;
+    this.state = resolved;
+    this.finalSync();
+    this.finish();
   }
 
   private async afterResolve(gen: number): Promise<void> {
@@ -655,6 +720,7 @@ export class GameController {
         }
       }
       if (resolvedState.status === 'sugar-crush') resolvedState = { ...resolvedState, status: 'won' };
+      this.sugarCrushResolved = resolvedState;
       // Persist the earned win immediately so leaving via Map/Retry mid-finale never discards progress.
       const finalScore = resolvedState.score;
       const finalStars = calculateStars(finalScore, resolvedState.level.starThresholds);
@@ -667,13 +733,14 @@ export class GameController {
 
       for (let i = 0; i < crushRuns.length; i++) {
         if (!this.sugarCrushAnnounced) this.showFinale();
-        await this.wait(i === 0 ? 0.75 : 0.2);
-        if (gen !== this.generation) return;
         this.displayStatus = 'sugar-crush';
         this.emit();
+        await this.wait(i === 0 ? 0.35 : 0.12);
+        if (gen !== this.generation) return;
         await this.playPhases(crushRuns[i].phases, gen);
         if (gen !== this.generation) return;
       }
+      this.sugarCrushResolved = null;
       this.state = resolvedState;
     } else if (this.state.status === 'won' || this.state.status === 'lost') {
       const score = this.state.score;
@@ -700,6 +767,7 @@ export class GameController {
 
   private finish(): void {
     this.ended = true;
+    this.bufferedSwap = null;
     this.activeBooster = null;
     this.deselect();
     const score = this.state.score;
@@ -829,21 +897,47 @@ export class GameController {
       this.schedule(t, fn);
     };
 
+    // Pass 0: Sugar Bee flights. Each bee launches on a short stagger and lands
+    // after its flight; payload blasts at the landing cell wait for the bee.
+    const seekerLaunch = new Map<AnimationEvent, number>();
+    const seekerArrive = new Map<string, number>();
+    let seekerIdx = 0;
+    for (const e of ph.events) {
+      if (e.type !== 'seeker-fly') continue;
+      const launch = 0.04 + Math.min(seekerIdx, 12) * 0.05;
+      seekerIdx++;
+      const o = this.renderer.cellCenter(e.origin.row, e.origin.col);
+      const t = this.renderer.cellCenter(e.target.row, e.target.col);
+      const arrive = launch + seekerFlightDuration(o.x, o.y, t.x, t.y, cs);
+      seekerLaunch.set(e, launch);
+      const key = keyOf(e.target);
+      seekerArrive.set(key, Math.max(seekerArrive.get(key) ?? 0, arrive));
+    }
+    const lead = (p: GridPos): number => seekerArrive.get(keyOf(p)) ?? 0;
+
     // Pass 1: timing for every affected cell.
     for (const e of ph.events) {
       switch (e.type) {
         case 'match':
           for (const c of e.cells) setPos(c, 0);
           break;
-        case 'laser':
+        case 'laser': {
+          const l = lead(e.origin);
           for (const p of e.affected) {
             const dist = e.orientation === 'h' ? Math.abs(p.col - e.origin.col) : Math.abs(p.row - e.origin.row);
-            setPos(p, 0.03 + dist * 0.022);
+            setPos(p, l + 0.03 + dist * 0.022);
           }
-          setPos(e.origin, 0);
+          setPos(e.origin, l);
           break;
-        case 'wrapped-boom':
-          for (const p of e.affected) setPos(p, 0.03 + Math.max(Math.abs(p.row - e.center.row), Math.abs(p.col - e.center.col)) * 0.035);
+        }
+        case 'wrapped-boom': {
+          const l = lead(e.center);
+          for (const p of e.affected) setPos(p, l + 0.03 + Math.max(Math.abs(p.row - e.center.row), Math.abs(p.col - e.center.col)) * 0.035);
+          break;
+        }
+        case 'seeker-fly':
+          setPos(e.origin, seekerLaunch.get(e) ?? 0);
+          setPos(e.target, seekerArrive.get(keyOf(e.target)) ?? 0);
           break;
         case 'lightning': {
           const step = Math.min(0.035, 0.55 / Math.max(1, e.targets.length));
@@ -893,7 +987,7 @@ export class GameController {
         case 'laser': {
           const width = e.width ?? 1;
           const color = e.color === 'none' ? GOLD : candyColorHex(e.color);
-          at(0, () => {
+          at(lead(e.origin), () => {
             const o = this.renderer.cellCenter(e.origin.row, e.origin.col);
             const lanes = width === 3 ? [-1, 0, 1] : [0];
             for (const lane of lanes) {
@@ -924,7 +1018,7 @@ export class GameController {
               v.flash = 0.9;
             }
           }
-          at(0, () => {
+          at(lead(e.center), () => {
             const c = this.renderer.cellCenter(e.center.row, e.center.col);
             this.particles.shockwave(c.x, c.y, cs * (e.radius * 1.5 + 0.9), color, 13, 0.5);
             this.particles.shockwave(c.x, c.y, cs * (e.radius * 0.9 + 0.5), '#ffffff', 7, 0.32);
@@ -951,7 +1045,8 @@ export class GameController {
                 v.velScaleX += 3 * k;
                 v.velScaleY -= 3 * k;
                 if (e.convertTo && v.candy.color !== 'none') {
-                  const special = e.convertTo === 'wrapped' ? 'wrapped' : i % 2 === 0 ? 'striped-h' : 'striped-v';
+                  const special =
+                    e.convertTo === 'wrapped' ? 'wrapped' : e.convertTo === 'seeker' ? 'seeker' : i % 2 === 0 ? 'striped-h' : 'striped-v';
                   v.candy = { ...v.candy, special };
                   v.velPop += 6;
                 }
@@ -966,6 +1061,13 @@ export class GameController {
             }
             this.particles.flash(0.08, '#ffffff');
           });
+          break;
+        }
+        case 'seeker-fly': {
+          const launch = seekerLaunch.get(e) ?? 0.04;
+          const arrive = seekerArrive.get(keyOf(e.target)) ?? launch + 0.34;
+          maxT = Math.max(maxT, offset + arrive);
+          at(launch, () => this.launchSeeker(e, before));
           break;
         }
         case 'board-wipe':
@@ -1107,6 +1209,32 @@ export class GameController {
     return this.visuals.get(id) ?? this.dying.find((d) => d.v.id === id)?.v;
   }
 
+  /** Sends a glossy Sugar Bee swooping from its candy to the target cell. */
+  private launchSeeker(e: Extract<AnimationEvent, { type: 'seeker-fly' }>, grid: Cell[][]): void {
+    const cs = this.renderer.cellSize;
+    const k = this.motionK();
+    const o = this.renderer.cellCenter(e.origin.row, e.origin.col);
+    const t = this.renderer.cellCenter(e.target.row, e.target.col);
+    const color = candyColorHex(e.color);
+    const src = this.anyVisualAt(grid, e.origin);
+    if (src) {
+      src.flash = 1;
+      src.velScaleY += 5 * k;
+      src.velScaleX -= 3 * k;
+    }
+    this.particles.seekerFlight(o.x, o.y, t.x, t.y, color, cs, e.payload ?? 'none', () => {
+      if (this.destroyed) return;
+      this.particles.shake((e.payload && e.payload !== 'none' ? 5 : 2.5) * k);
+      const v = this.anyVisualAt(grid, e.target);
+      if (v) {
+        v.flash = 1;
+        v.velScaleY -= 4 * k;
+        v.velScaleX += 3.5 * k;
+      }
+    });
+    this.sound.playSeekerLaunch();
+  }
+
   private crunch(): void {
     if (this.time - this.lastCrunchSound > 0.06) {
       this.lastCrunchSound = this.time;
@@ -1129,6 +1257,9 @@ export class GameController {
       const v = this.visuals.get(e.candyId);
       if (v) this.kill(v, 'collect', delay);
       this.schedule(delay, () => this.sound.playIngredientCollect());
+    } else if (e.type === 'seeker-fly') {
+      const grid = this.displayGrid;
+      this.schedule(delay + 0.04, () => this.launchSeeker(e, grid));
     }
   }
 
@@ -1365,6 +1496,7 @@ export class GameController {
       if (gen !== this.generation) return;
       this.busy = Math.max(0, this.busy - 1);
       this.emit();
+      this.drainBufferedSwap();
     });
   }
 
@@ -1441,6 +1573,29 @@ export class GameController {
     return this.running && !this.destroyed && this.busy === 0 && !this.ended && this.state.status === 'playing';
   }
 
+  /** True while the board is still settling but an early swipe may be buffered for it. */
+  private canBufferInput(): boolean {
+    return (
+      this.running &&
+      !this.destroyed &&
+      this.busy > 0 &&
+      !this.ended &&
+      this.state.status === 'playing' &&
+      this.activeBooster === null
+    );
+  }
+
+  /** Swaps now if the board is ready, else holds the swipe in the one-slot buffer. */
+  private requestSwap(from: GridPos, to: GridPos): void {
+    if (this.canInteract()) {
+      this.bufferedSwap = null;
+      this.attemptSwap(from, to);
+      return;
+    }
+    if (!this.canBufferInput() || !this.cellAt(from)?.playable || !this.cellAt(to)?.playable) return;
+    this.bufferedSwap = { from: { ...from }, to: { ...to }, expiresAt: nowMs() + SWIPE_BUFFER_MS };
+  }
+
   private localPoint(e: PointerEvent): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -1468,7 +1623,23 @@ export class GameController {
     const pos = this.renderer.pointToCell(pt.x, pt.y);
     const cell = this.cellAt(pos);
     this.setHover(pos && cell?.playable ? pos : null);
-    if (!this.canInteract()) return;
+    if (!this.canInteract()) {
+      // Tap anywhere on the board during the Sugar Snap finale to skip straight to Victory + Next Level.
+      if (this.displayStatus === 'sugar-crush' && this.sugarCrushResolved) {
+        this.skipSugarCrush();
+        return;
+      }
+      // Board still settling: track the drag so a fast swipe is buffered, not dropped.
+      if (pos && cell?.playable && this.canBufferInput()) {
+        try {
+          this.canvas.setPointerCapture(e.pointerId);
+        } catch {
+          /* capture unsupported */
+        }
+        this.pointer = { id: e.pointerId, startX: pt.x, startY: pt.y, cell: pos, wasSelected: false, swiped: false, pendingTapSwap: null, buffered: true };
+      }
+      return;
+    }
     if (!pos || !cell || !cell.playable) {
       this.deselect();
       return;
@@ -1495,7 +1666,7 @@ export class GameController {
       this.deselect();
       return;
     }
-    this.pointer = { id: e.pointerId, startX: pt.x, startY: pt.y, cell: pos, wasSelected, swiped: false, pendingTapSwap };
+    this.pointer = { id: e.pointerId, startX: pt.x, startY: pt.y, cell: pos, wasSelected, swiped: false, pendingTapSwap, buffered: false };
   };
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -1520,7 +1691,7 @@ export class GameController {
     const horizontal = Math.abs(dx) > Math.abs(dy);
     const to: GridPos = horizontal ? { row: p.cell.row, col: p.cell.col + Math.sign(dx) } : { row: p.cell.row + Math.sign(dy), col: p.cell.col };
     this.deselect();
-    if (this.canInteract()) this.attemptSwap(p.cell, to);
+    this.requestSwap(p.cell, to);
   };
 
   private onPointerUp = (e: PointerEvent): void => {
@@ -1533,7 +1704,7 @@ export class GameController {
     } catch {
       /* not captured */
     }
-    if (!p.swiped) {
+    if (!p.swiped && !p.buffered) {
       if (p.pendingTapSwap) {
         this.deselect();
         if (this.canInteract()) this.attemptSwap(p.pendingTapSwap, p.cell);
@@ -1639,6 +1810,7 @@ export class GameController {
       return;
     }
     this.activeBooster = null;
+    this.bufferedSwap = null;
     this.opts.onBoosterConsumed('hammer');
     const hasFx = result.phases.some((ph) => ph.events.some((e) => e.type === 'booster-hammer'));
     if (!hasFx) {

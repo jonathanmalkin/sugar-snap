@@ -7,6 +7,7 @@ import type {
   GameState,
   GridPos,
   MatchGroup,
+  ObjectiveProgress,
   PhaseKind,
   PraiseWord,
   ResolutionPhase,
@@ -20,6 +21,7 @@ import {
   cloneGrid,
   cloneState,
   computeObjectivesProgress,
+  createGameState,
   findCandyPosition,
   findValidMoves,
   getCell,
@@ -34,6 +36,7 @@ import { findMatches, formsMatchAt } from './matcher';
 export const SCORE_VALUES = {
   line3: 60,
   line4: 120,
+  square2x2: 120,
   line5: 200,
   lt: 200,
   blastCandy: 60,
@@ -254,15 +257,83 @@ function pickBombColor(grid: Cell[][]): CandyColor | null {
   return best;
 }
 
+export function pickSeekerTarget(
+  grid: Cell[][],
+  objectives: readonly ObjectiveProgress[],
+  excludeKeys: ReadonlySet<string>,
+  rng: Rng,
+): GridPos | undefined {
+  const orderColors = new Set(objectives.filter((o) => o.kind === 'order' && !o.completed).map((o) => o.color));
+  let bestPriority = 0;
+  let targets: GridPos[] = [];
+  for (const row of grid)
+    for (const cell of row) {
+      if (!cell.playable || cell.candy?.ingredient || excludeKeys.has(posKey(cell))) continue;
+      let priority: number;
+      if (cell.jelly === 2) priority = 6;
+      else if (cell.jelly === 1) priority = 5;
+      else if (grid[cell.row - 1]?.[cell.col]?.candy?.ingredient) priority = 4;
+      else if (cell.chocolate || cell.frosting > 0 || cell.locked) priority = 3;
+      else if (cell.candy && cell.candy.color !== 'none' && orderColors.has(cell.candy.color)) priority = 2;
+      else if (cell.candy) priority = 1;
+      else continue;
+      if (priority < bestPriority) continue;
+      if (priority > bestPriority) {
+        bestPriority = priority;
+        targets = [];
+      }
+      targets.push({ row: cell.row, col: cell.col });
+    }
+  if (!targets.length) return undefined;
+  return targets[Math.min(targets.length - 1, Math.floor(rng() * targets.length))];
+}
+
+function pickWaveSeekerTarget(ctx: ResolveContext, wave: Wave): GridPos | undefined {
+  refreshObjectives(ctx.s);
+  return pickSeekerTarget(ctx.s.grid, ctx.s.objectives, new Set([...wave.hit, ...wave.blockerHit]), ctx.rng);
+}
+
+function hitSeekerNeighbors(ctx: ResolveContext, wave: Wave, origin: GridPos): void {
+  for (const [dr, dc] of ORTHO) damageCell(ctx, wave, { row: origin.row + dr, col: origin.col + dc }, 'blast');
+}
+
+type SeekerPayload = NonNullable<Extract<AnimationEvent, { type: 'seeker-fly' }>['payload']>;
+
+function launchSeeker(
+  ctx: ResolveContext,
+  wave: Wave,
+  origin: GridPos,
+  target: GridPos,
+  color: CandyColor,
+  payload: SeekerPayload = 'none',
+): void {
+  wave.events.push({ type: 'seeker-fly', origin: { ...origin }, target, color, payload });
+  if (payload === 'none') damageCell(ctx, wave, target, 'blast');
+  else if (payload === 'wrapped') {
+    const affected = squareCells(ctx.s.grid, target, 1);
+    wave.events.push({ type: 'wrapped-boom', center: { ...target }, radius: 1, stage: 1, color, affected });
+    affected.forEach((p) => damageCell(ctx, wave, p, 'blast'));
+  } else fireStripe(ctx, wave, target, color, payload === 'striped-h' ? 'h' : 'v');
+}
+
+function fireStripe(ctx: ResolveContext, wave: Wave, pos: GridPos, color: Candy['color'], orientation: 'h' | 'v'): void {
+  const affected = lineCells(ctx.s.grid, orientation, orientation === 'h' ? pos.row : pos.col);
+  wave.events.push({ type: 'laser', origin: { ...pos }, orientation, color, affected, width: 1 });
+  affected.forEach((p) => damageCell(ctx, wave, p, 'blast'));
+}
+
 function fireSpecial(ctx: ResolveContext, wave: Wave, pos: GridPos, candy: Candy): void {
   const grid = ctx.s.grid;
   switch (candy.special) {
     case 'striped-h':
-    case 'striped-v': {
-      const orientation = candy.special === 'striped-h' ? 'h' : 'v';
-      const affected = lineCells(grid, orientation, orientation === 'h' ? pos.row : pos.col);
-      wave.events.push({ type: 'laser', origin: { ...pos }, orientation, color: candy.color, affected, width: 1 });
-      affected.forEach((p) => damageCell(ctx, wave, p, 'blast'));
+    case 'striped-v':
+      fireStripe(ctx, wave, pos, candy.color, candy.special === 'striped-h' ? 'h' : 'v');
+      break;
+    case 'seeker': {
+      if (candy.color === 'none') break;
+      hitSeekerNeighbors(ctx, wave, pos);
+      const target = pickWaveSeekerTarget(ctx, wave);
+      if (target) launchSeeker(ctx, wave, pos, target, candy.color);
       break;
     }
     case 'wrapped': {
@@ -333,12 +404,59 @@ function processMatchStep(ctx: ResolveContext, groups: MatchGroup[], cascade: nu
   pushPhase(ctx, 'clear', events);
 }
 
+function executeBombSeeker(ctx: ResolveContext, bombPos: GridPos, color: CandyColor): void {
+  const { grid } = ctx.s;
+  const conversion = createWave([]);
+  damageCell(ctx, conversion, bombPos, 'wipe');
+  const origins = cellsOfColor(grid, color);
+  for (const origin of origins) getCell(grid, origin)!.candy!.special = 'seeker';
+  conversion.events.unshift({ type: 'lightning', origin: { ...bombPos }, targets: origins, color, convertTo: 'seeker' });
+  pushPhase(ctx, 'combo', conversion.events);
+
+  // Plan the flights on the conversion snapshot so early blasts cannot leave later bees without a destination.
+  const bombKey = posKey(bombPos);
+  const converting = new Set([bombKey, ...origins.map(posKey)]);
+  const distinct = new Set(converting);
+  const flights = origins.map((origin) => {
+    const target = pickSeekerTarget(grid, ctx.s.objectives, distinct, ctx.rng)
+      ?? pickSeekerTarget(grid, ctx.s.objectives, converting, ctx.rng)
+      ?? pickSeekerTarget(grid, ctx.s.objectives, new Set([bombKey, posKey(origin)]), ctx.rng);
+    if (target) distinct.add(posKey(target));
+    return { origin, target };
+  });
+
+  const wave = createWave([]);
+  wave.hit.add(bombKey);
+  for (const origin of origins) {
+    // Converted locked candies join the launch when the lightning breaks their locks.
+    damageCell(ctx, wave, origin, 'wipe');
+    if (wave.blockerHit.has(posKey(origin))) {
+      wave.hit.delete(posKey(origin));
+      damageCell(ctx, wave, origin, 'wipe');
+    }
+  }
+  for (const { origin, target } of flights) {
+    if (target) launchSeeker(ctx, wave, origin, target, color);
+    hitSeekerNeighbors(ctx, wave, origin);
+  }
+  runActivationQueue(ctx, wave);
+  pushPhase(ctx, 'combo', wave.events);
+}
+
 function executeCombo(ctx: ResolveContext, from: GridPos, to: GridPos): void {
   const grid = ctx.s.grid;
   const toCell = getCell(grid, to)!;
   const fromCell = getCell(grid, from)!;
   const a = toCell.candy!; // the candy the player dragged
   const b = fromCell.candy!;
+  const bombA = a.special === 'color-bomb';
+  const bombB = b.special === 'color-bomb';
+  const bombPartner = bombA ? b : bombB ? a : null;
+  if (bombPartner?.special === 'seeker' && bombPartner.color !== 'none') {
+    executeBombSeeker(ctx, bombA ? to : from, bombPartner.color);
+    return;
+  }
+
   const events: AnimationEvent[] = [];
   const wave = createWave(events);
   for (const [cell, candy] of [
@@ -351,9 +469,6 @@ function executeCombo(ctx: ResolveContext, from: GridPos, to: GridPos): void {
     cell.candy = null;
     reduceJelly(ctx, wave, cell);
   }
-  const bombA = a.special === 'color-bomb';
-  const bombB = b.special === 'color-bomb';
-
   if (bombA && bombB) {
     const affected: GridPos[] = [];
     for (const row of grid) for (const cell of row) if (cell.playable) affected.push({ row: cell.row, col: cell.col });
@@ -398,6 +513,22 @@ function executeCombo(ctx: ResolveContext, from: GridPos, to: GridPos): void {
       runActivationQueue(ctx, wave2);
       pushPhase(ctx, 'combo', detonation);
       return;
+    }
+  } else if (a.special === 'seeker' || b.special === 'seeker') {
+    const seeker = a.special === 'seeker' ? a : b;
+    const other = seeker === a ? b : a;
+    if (seeker.color !== 'none') {
+      if (other.special === 'seeker') {
+        hitSeekerNeighbors(ctx, wave, to);
+        for (let i = 0; i < 3; i++) {
+          const target = pickWaveSeekerTarget(ctx, wave);
+          if (!target) break;
+          launchSeeker(ctx, wave, to, target, seeker.color);
+        }
+      } else if (other.special === 'striped-h' || other.special === 'striped-v' || other.special === 'wrapped') {
+        const target = pickWaveSeekerTarget(ctx, wave);
+        if (target) launchSeeker(ctx, wave, seeker === a ? to : from, target, seeker.color, other.special);
+      }
     }
   } else if (isStriped(a.special) && isStriped(b.special)) {
     for (const orientation of ['h', 'v'] as const) {
@@ -599,17 +730,26 @@ export function finishTurn(ctx: ResolveContext): StepResult {
   s.maxCascade = Math.max(s.maxCascade, ctx.maxCascade);
   let didShuffle = false;
   const allDone = s.objectives.length > 0 && s.objectives.every((o) => o.completed);
-  if (allDone) s.status = s.movesLeft > 0 ? 'sugar-crush' : 'won';
-  else if (s.movesLeft <= 0) s.status = 'lost';
+  const zen = s.level.mode === 'zen';
+  if (zen) s.status = 'playing';
+  if (!zen && allDone) s.status = s.movesLeft > 0 ? 'sugar-crush' : 'won';
+  else if (!zen && s.movesLeft <= 0) s.status = 'lost';
   else if (findValidMoves(s.grid).length === 0) {
     const { grid, mappings } = shuffleBoard(s, ctx.rng);
     s.grid = grid;
-    if (findValidMoves(s.grid).length === 0) {
-      s.status = 'lost';
-    } else {
+    const playable = findValidMoves(grid).length > 0;
+    if (zen && (!playable || findMatches(grid).length > 0)) {
+      // If the existing candies cannot form a playable board, refresh the meadow and keep the session totals.
+      const fresh = createGameState(s.level, ctx.rng);
+      s.grid = fresh.grid;
+      for (const row of s.grid)
+        for (const cell of row) if (cell.candy) cell.candy.id = s.nextCandyId++;
+      pushPhase(ctx, 'shuffle', [{ type: 'shuffle', mappings: [] }]);
+      didShuffle = true;
+    } else if (playable) {
       pushPhase(ctx, 'shuffle', [{ type: 'shuffle', mappings }]);
       didShuffle = true;
-    }
+    } else s.status = 'lost';
   }
   return { valid: true, state: s, phases: ctx.phases, starsEarned: calculateStars(s.score, s.level.starThresholds), didShuffle };
 }
@@ -651,7 +791,7 @@ export function executeSwap(
   [fromCell.candy, toCell.candy] = [toCell.candy, fromCell.candy];
   pushPhase(ctx, 'swap', [{ type: 'swap', from: { ...from }, to: { ...to }, valid: true }]);
   if (!free) {
-    s.movesLeft -= 1;
+    if (s.level.mode !== 'zen') s.movesLeft -= 1;
     s.totalMovesMade += 1;
   }
 

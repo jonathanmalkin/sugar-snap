@@ -7,7 +7,8 @@
  * candy also gets a "sheen" layer the board uses for its moving glass glint.
  *
  * Baking is split so the first frame never waits on sprites it does not show:
- * prewarm() bakes the level's plain candies at once and queues everything else;
+ * prewarm() bakes the level's plain candies at once and queues everything else
+ * (stripes, wrapped, bomb, then the Sugar Bee seekers);
  * bakeIdle() drains that queue a few milliseconds per frame. Any sprite asked
  * for before its turn is simply baked on demand.
  *
@@ -388,6 +389,8 @@ export class CandySpriteAtlas {
       for (const special of ['striped-h', 'striped-v', 'wrapped'] as const) add(`${color}:${special}`, { kind: 'candy', color, special });
     }
     add('bomb', { kind: 'bomb' });
+    // Sugar Bees last: they are the rarest special, so they never delay the common sprites.
+    for (const color of colors) add(`${color}:seeker`, { kind: 'candy', color, special: 'seeker' });
   }
 
   /**

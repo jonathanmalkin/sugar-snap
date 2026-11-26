@@ -19,6 +19,7 @@ export interface ISoundEngine {
   playStripedBlast(mega?: boolean): void;
   playWrappedBlast(stage: 1 | 2, mega?: boolean): void;
   playColorBombZap(stepIndex?: number): void;
+  playSeekerLaunch(): void;
   playBoardWipe(): void;
   playFrostingCrunch(): void;
   playJellyClear(): void;

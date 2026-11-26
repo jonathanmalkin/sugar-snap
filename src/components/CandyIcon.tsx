@@ -31,7 +31,10 @@ export type IconKind =
   | 'share'
   | 'add-square'
   | 'play'
-  | 'gift';
+  | 'gift'
+  | 'seeker'
+  | 'infinity'
+  | 'flame';
 
 export interface CandyIconProps {
   kind: IconKind;
@@ -87,6 +90,7 @@ export function objectiveIcon(obj: ObjectiveTarget): { kind: IconKind; tint?: Ca
       if (special === 'striped-h' || special === 'striped-v') return { kind: 'striped', tint: obj.color };
       if (special === 'wrapped') return { kind: 'wrapped', tint: obj.color };
       if (special === 'color-bomb') return { kind: 'color-bomb' };
+      if (special === 'seeker') return { kind: 'seeker', tint: obj.color };
       return { kind: obj.color ?? 'red' };
     }
     default:
@@ -555,6 +559,92 @@ function renderBody(kind: IconKind, id: string, tint?: CandyColor): ReactElement
           <rect x="6" y="13" width="36" height="8" rx="3" fill="#ff6f95" stroke="#9c1240" strokeWidth="1.2" />
           <path d="M24 13v28" stroke="#ffb703" strokeWidth="5" />
           <path d="M24 13c-3-6-11-8-11-3 0 3 6 3 11 3zM24 13c3-6 11-8 11-3 0 3-6 3-11 3z" fill="#ffb703" stroke="#b86b00" strokeWidth="1.2" />
+        </g>
+      );
+
+    /* Homing Sugar Bee: glossy candy body, cocoa stripes, frosted wings. */
+    case 'seeker': {
+      const tone = CANDY_TONES[tint ?? 'yellow'];
+      return (
+        <g strokeLinejoin="round" strokeLinecap="round">
+          {candyGradient(id, tone)}
+          <defs>
+            <clipPath id={`${id}-bee`}>
+              <ellipse cx="22.5" cy="29" rx="14.5" ry="11" />
+            </clipPath>
+            <linearGradient id={`${id}-wing`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.98" />
+              <stop offset="100%" stopColor="#cdeaff" stopOpacity="0.85" />
+            </linearGradient>
+          </defs>
+          {SHADOW}
+          <ellipse cx="17" cy="14.5" rx="6.4" ry="9" fill={`url(#${id}-wing)`} stroke="#7fbde8" strokeWidth="1.2" transform="rotate(-28 17 14.5)" />
+          <ellipse cx="27" cy="13.5" rx="6.4" ry="9" fill={`url(#${id}-wing)`} stroke="#7fbde8" strokeWidth="1.2" transform="rotate(22 27 13.5)" />
+          <path d="M17.5 10.5c-.4 2.6.2 5 1.6 7M26.6 9.6c.8 2.4.6 4.9-.6 7" fill="none" stroke="#fff" strokeOpacity="0.9" strokeWidth="1.1" />
+          <path d="M8.6 28.2 3.2 29.6l5.6 2.2z" fill="#3b2318" />
+          <ellipse cx="22.5" cy="29" rx="14.5" ry="11" fill={`url(#${id}-g)`} />
+          <g clipPath={`url(#${id}-bee)`} stroke="#3b2318" strokeWidth="3.6">
+            <path d="M15.5 16v26M22.5 16v26" />
+          </g>
+          <ellipse cx="22.5" cy="29" rx="14.5" ry="11" fill="none" stroke={tone.dark} strokeWidth="1.3" />
+          <path d="M33 20.5c1.2-4 3.4-6.4 6.4-7.2M35.6 22c2.2-3 4.8-4.4 7.6-4.2" fill="none" stroke="#3b2318" strokeWidth="1.5" />
+          <circle cx="39.6" cy="13.2" r="1.9" fill={tone.base} stroke="#3b2318" strokeWidth="1" />
+          <circle cx="43.2" cy="17.8" r="1.9" fill={tone.base} stroke="#3b2318" strokeWidth="1" />
+          <circle cx="31" cy="26.4" r="2.6" fill="#3b2318" />
+          <circle cx="31.9" cy="25.5" r="0.9" fill="#fff" />
+          <path d="M29.4 32.2c1.4 1.4 3.4 1.4 4.8 0" fill="none" stroke="#3b2318" strokeWidth="1.3" />
+          <ellipse cx="35.2" cy="30.4" rx="1.8" ry="1.1" fill="#ff8fb0" opacity="0.75" />
+          <Shine id={id} x={24} y={21.4} rx={6.4} ry={2.2} rotate={-8} />
+        </g>
+      );
+    }
+
+    /* Endless Zen: glossy mint ribbon lemniscate. */
+    case 'infinity':
+      return (
+        <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <defs>
+            <linearGradient id={`${id}-inf`} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#7ff0c0" />
+              <stop offset="50%" stopColor="#21b97a" />
+              <stop offset="100%" stopColor="#0f7a4f" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M24 24c-3.8-4.6-7.4-7.6-11.4-7.6a7.6 7.6 0 0 0 0 15.2c4 0 7.6-3 11.4-7.6zm0 0c3.8 4.6 7.4 7.6 11.4 7.6a7.6 7.6 0 0 0 0-15.2c-4 0-7.6 3-11.4 7.6z"
+            stroke="#0b5a3a"
+            strokeOpacity="0.35"
+            strokeWidth="7.4"
+            transform="translate(0 1.4)"
+          />
+          <path
+            d="M24 24c-3.8-4.6-7.4-7.6-11.4-7.6a7.6 7.6 0 0 0 0 15.2c4 0 7.6-3 11.4-7.6zm0 0c3.8 4.6 7.4 7.6 11.4 7.6a7.6 7.6 0 0 0 0-15.2c-4 0-7.6 3-11.4 7.6z"
+            stroke={`url(#${id}-inf)`}
+            strokeWidth="6"
+          />
+          <path d="M9.4 21.4c1-1.8 2.6-2.8 4.4-2.8M34.2 18.6c1.8 0 3.4.8 4.4 2.4" stroke="#fff" strokeOpacity="0.85" strokeWidth="1.8" />
+        </g>
+      );
+
+    /* Win streak: warm honey flame. */
+    case 'flame':
+      return (
+        <g strokeLinejoin="round">
+          <defs>
+            <linearGradient id={`${id}-fl`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffe48a" />
+              <stop offset="45%" stopColor="#ffb703" />
+              <stop offset="100%" stopColor="#ef6a1a" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M24 4.5c1.6 6.4 9.6 10.4 11.6 18.2 2.2 8.8-3.6 18.8-11.6 18.8S10.2 34.4 12 26.4c1-4.4 3.8-6.4 4.8-10 1.6 2.8 2.6 4.6 4.6 5.6C20.4 15.6 21.6 9.8 24 4.5z"
+            fill={`url(#${id}-fl)`}
+            stroke="#b86b00"
+            strokeWidth="1.4"
+          />
+          <path d="M24 22c3.6 3.6 6.4 6.8 5.4 11-1 3.6-3.4 5-5.4 5s-4.6-1.6-5.2-4.6c-.6-3.2 1.6-5 3-6.6.4 1.4 1.2 2.2 2 2.4-.6-2.6-.4-4.8.2-7.2z" fill="#fff4c2" />
+          <ellipse cx="19.4" cy="21" rx="2" ry="4.2" fill="#fff" opacity="0.55" transform="rotate(18 19.4 21)" />
         </g>
       );
   }

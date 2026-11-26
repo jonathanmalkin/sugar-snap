@@ -18,7 +18,7 @@ const FINALE_CALLOUT: PraiseWord | null = 'Sugar Snap!';
  * candy striped (+1500), then every special on the board detonates until it settles.
  */
 export function executeSugarCrush(state: GameState, rng: () => number = Math.random): StepResult {
-  if (state.status === 'lost') {
+  if (state.level.mode === 'zen' || state.status === 'lost') {
     return { valid: false, state, phases: [], starsEarned: calculateStars(state.score, state.level.starThresholds), didShuffle: false };
   }
   const ctx = createResolveContext(state, rng);

@@ -5,20 +5,23 @@ import type { BoosterType } from './engine/types';
 import { GameScreen, type LevelWinRecord } from './components/GameScreen';
 import { SagaMap } from './components/SagaMap';
 import { SettingsModal } from './components/SettingsModal';
-import { LEVELS } from './levels';
+import { LEVELS, ZEN_LEVEL } from './levels';
 import {
   STORAGE_KEY,
+  clearZenSession,
   consumeBooster,
   loadSave,
   mutateSave,
   recordLevelCompletion,
   resetPlayerSave,
+  resetWinStreak,
+  saveZenSession,
   savePlayerData,
   updateUserSettings,
 } from './state/storage';
-import type { PlayerSave, UserSettings } from './state/storageTypes';
+import type { PlayerSave, UserSettings, ZenSaveState } from './state/storageTypes';
 
-type Screen = { name: 'map' } | { name: 'play'; levelId: number; showIntro: boolean };
+type Screen = { name: 'map' } | { name: 'play'; levelId: number; showIntro: boolean } | { name: 'zen' };
 
 /* One sound engine for the life of the page (survives StrictMode remounts). */
 let soundSingleton: ISoundEngine | null = null;
@@ -106,10 +109,13 @@ export function App(): ReactElement {
 
   /* ---------- navigation ---------- */
 
-  const playLevel = useCallback((levelId: number) => {
+  /** Map picks show the Intro sheet; Victory's Next Level passes `false` to flow straight in. */
+  const playLevel = useCallback((levelId: number, showIntro = true) => {
     const target = Math.max(1, Math.min(levelId, saveRef.current.highestUnlockedLevel, MAX_LEVEL));
-    setScreen({ name: 'play', levelId: target, showIntro: true });
+    setScreen({ name: 'play', levelId: target, showIntro });
   }, []);
+
+  const playZen = useCallback(() => setScreen({ name: 'zen' }), []);
 
   const exitToMap = useCallback(() => setScreen({ name: 'map' }), []);
 
@@ -135,6 +141,25 @@ export function App(): ReactElement {
     return result;
   }, []);
 
+  const handleStreakReset = useCallback(() => {
+    if (saveRef.current.winStreak <= 0 && loadSave().winStreak <= 0) return;
+    const { save: next } = mutateSave((latest) => ({ save: resetWinStreak(latest), result: undefined }));
+    saveRef.current = next;
+    setSave(next);
+  }, []);
+
+  const handleZenSnapshot = useCallback((zen: ZenSaveState) => {
+    const { save: next } = mutateSave((latest) => ({ save: saveZenSession(latest, zen), result: undefined }));
+    saveRef.current = next;
+    setSave(next);
+  }, []);
+
+  const handleZenReset = useCallback(() => {
+    const { save: next } = mutateSave((latest) => ({ save: clearZenSession(latest), result: undefined }));
+    saveRef.current = next;
+    setSave(next);
+  }, []);
+
   const handleSettingsChange = useCallback((partial: Partial<UserSettings>) => {
     const { save: next } = mutateSave((latest) => ({ save: updateUserSettings(latest, partial), result: undefined }));
     saveRef.current = next;
@@ -154,15 +179,17 @@ export function App(): ReactElement {
           save={save}
           reducedMotion={settings.reducedMotion}
           onPlayLevel={playLevel}
+          onPlayZen={playZen}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : (
         <GameScreen
-          key={screen.levelId}
-          levelId={screen.levelId}
+          key={screen.name === 'zen' ? 'zen' : `level-${screen.levelId}`}
+          mode={screen.name === 'zen' ? 'zen' : 'saga'}
+          levelId={screen.name === 'zen' ? ZEN_LEVEL.id : screen.levelId}
           save={save}
           sound={sound}
-          showIntro={screen.showIntro}
+          showIntro={screen.name === 'play' && screen.showIntro}
           overlayOpen={settingsOpen}
           onExitToMap={exitToMap}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -170,6 +197,9 @@ export function App(): ReactElement {
           onBoosterConsumed={handleBoosterConsumed}
           onLevelWon={handleLevelWon}
           onUnlockAudio={() => setAudioUnlocked(true)}
+          onStreakReset={handleStreakReset}
+          onZenSnapshot={handleZenSnapshot}
+          onZenReset={handleZenReset}
         />
       )}
 

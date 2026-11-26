@@ -53,7 +53,6 @@ function findRuns(grid: Cell[][]): Run[] {
 
 export function findMatches(grid: Cell[][], swappedPositions?: [GridPos, GridPos]): MatchGroup[] {
   const runs = findRuns(grid);
-  if (!runs.length) return [];
 
   // Union runs that share a cell (always the same colour, since a cell has one colour).
   const parent = runs.map((_, i) => i);
@@ -113,10 +112,47 @@ export function findMatches(grid: Cell[][], swappedPositions?: [GridPos, GridPos
     const spawnPos = swappedInGroup ?? (shape === 'lt' && intersection ? intersection : middle);
     groups.push({ cells, color: longest.color, shape, spawnSpecial, spawnPos: { ...spawnPos } });
   }
-  return groups.sort((a, b) => a.cells[0].row - b.cells[0].row || a.cells[0].col - b.cells[0].col);
+  const specialGroups = groups
+    .filter((g) => g.shape !== 'line3')
+    .map((g) => new Set(g.cells.map(key)));
+  const squareByCell = new Map<string, MatchGroup>();
+  const squares: MatchGroup[] = [];
+  for (let row = 0; row + 1 < grid.length; row++)
+    for (let col = 0; col + 1 < grid[row].length; col++) {
+      const topLeft = { row, col };
+      const color = squareColorAt(grid, topLeft);
+      if (!color) continue;
+      const cells = [topLeft, { row, col: col + 1 }, { row: row + 1, col }, { row: row + 1, col: col + 1 }];
+      const keys = cells.map(key);
+      if (specialGroups.some((group) => keys.every((k) => group.has(k)))) continue;
+      const spawnPos = swappedPositions?.find((p) => keys.includes(key(p))) ?? topLeft;
+      const square: MatchGroup = { cells, color, shape: 'square2x2', spawnSpecial: 'seeker', spawnPos: { ...spawnPos } };
+      squares.push(square);
+      for (const k of keys) if (!squareByCell.has(k)) squareByCell.set(k, square);
+    }
+
+  const remainingGroups = groups.filter((g) => {
+    if (g.shape !== 'line3') return true;
+    const square = g.cells.map((p) => squareByCell.get(key(p))).find(Boolean);
+    if (!square) return true;
+    // Clear any extension of the line as part of the square, retaining its spawn position.
+    square.cells.push(...g.cells.filter((p) => !squareByCell.has(key(p))));
+    return false;
+  });
+  return [...remainingGroups, ...squares].sort((a, b) => a.cells[0].row - b.cells[0].row || a.cells[0].col - b.cells[0].col);
 }
 
-/** True if the candy at pos sits in a straight run of three or more. */
+/** Matchable colour if the 2x2 block starting at topLeft is monochromatic. */
+export function squareColorAt(grid: Cell[][], { row, col }: GridPos): CandyColor | null {
+  const color = matchableColor(grid[row]?.[col]);
+  if (color
+    && matchableColor(grid[row]?.[col + 1]) === color
+    && matchableColor(grid[row + 1]?.[col]) === color
+    && matchableColor(grid[row + 1]?.[col + 1]) === color) return color;
+  return null;
+}
+
+/** True if the candy at pos sits in a line or a square match. */
 export function formsMatchAt(grid: Cell[][], pos: GridPos): boolean {
   const color = matchableColor(grid[pos.row]?.[pos.col]);
   if (!color) return false;
@@ -131,5 +167,9 @@ export function formsMatchAt(grid: Cell[][], pos: GridPos): boolean {
     }
     return n;
   };
-  return 1 + count(0, -1) + count(0, 1) >= 3 || 1 + count(-1, 0) + count(1, 0) >= 3;
+  if (1 + count(0, -1) + count(0, 1) >= 3 || 1 + count(-1, 0) + count(1, 0) >= 3) return true;
+  for (const row of [pos.row - 1, pos.row])
+    for (const col of [pos.col - 1, pos.col])
+      if (squareColorAt(grid, { row, col })) return true;
+  return false;
 }

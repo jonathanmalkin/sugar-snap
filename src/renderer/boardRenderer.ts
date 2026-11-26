@@ -626,13 +626,18 @@ export class BoardRenderer {
     const { cellSize: cs, originX: ox, originY: oy } = this.layout;
     const sprite = this.atlas.getCandy(v.candy);
     const cx = ox + (v.x + v.offsetX + 0.5) * cs;
-    const cy = oy + (v.y + v.offsetY + 0.5) * cs - v.lift * cs * 0.07;
+    // Sugar Bees hover: a soft bob and a little bank, as if their wings are buzzing.
+    const bee = v.candy.special === 'seeker' && !dying && !frame.reducedMotion;
+    const beePhase = frame.time * 4.2 + v.id * 1.3;
+    const bob = bee ? Math.sin(beePhase) * cs * 0.028 : 0;
+    const bank = bee ? Math.sin(beePhase * 0.5 + 0.8) * 0.05 : 0;
+    const cy = oy + (v.y + v.offsetY + 0.5) * cs - v.lift * cs * 0.07 + bob;
     const s = v.pop * (1 + 0.07 * v.lift);
     const anchor = cs * 0.36; // squash pivots near the candy's base
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, v.alpha));
     ctx.translate(cx, cy + anchor);
-    if (v.rotation) ctx.rotate(v.rotation);
+    if (v.rotation || bank) ctx.rotate(v.rotation + bank);
     ctx.scale(v.scaleX * s, v.scaleY * s);
     ctx.translate(0, -anchor);
     if (v.lift > 0.05) {

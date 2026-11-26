@@ -116,6 +116,8 @@ export function LevelIntroSheet({ level, chapter, bestScore, bestStars, onPlay, 
         ) : null}
       </div>
 
+      {level.tutorialHint ? <p className="intro-sheet__hint">{level.tutorialHint}</p> : null}
+
       <div className="modal__actions">
         <button type="button" className="btn btn--primary btn--xl" onClick={onPlay} data-autofocus>
           <CandyIcon kind="play" size={26} />
@@ -146,8 +148,11 @@ export interface VictoryModalProps {
   isNewBest: boolean;
   awardedBoosters: BoosterType[];
   hasNextLevel: boolean;
+  /** Current win streak; ≥1 promises a Baker's Gift on the next board. */
+  winStreak?: number;
   sound: ISoundEngine;
   reducedMotion: boolean;
+  /** Opens the next level straight onto the board (no Intro sheet). */
   onNext: () => void;
   onReplay: () => void;
   onMap: () => void;
@@ -164,6 +169,7 @@ export function VictoryModal({
   isNewBest,
   awardedBoosters,
   hasNextLevel,
+  winStreak = 0,
   sound,
   reducedMotion,
   onNext,
@@ -246,6 +252,18 @@ export function VictoryModal({
             </span>
           </div>
         </div>
+      ) : null}
+
+      {hasNextLevel && winStreak >= 1 ? (
+        <p className="victory__streak" role="status">
+          <span className="gift-pill">
+            <span className="gift-pill__gem" aria-hidden="true">
+              <CandyIcon kind="flame" size={20} />
+            </span>
+            <span className="gift-pill__text">Streak ×{winStreak}</span>
+          </span>
+          <span className="victory__streak-note">Next board opens with a Baker's Gift</span>
+        </p>
       ) : null}
 
       <div className="modal__actions">

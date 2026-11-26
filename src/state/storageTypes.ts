@@ -1,4 +1,4 @@
-import type { BoosterType } from '../engine/types';
+import type { BoosterType, Cell } from '../engine/types';
 
 export interface LevelProgress {
   completed: boolean;
@@ -15,10 +15,22 @@ export interface UserSettings {
   reducedMotion: boolean;
 }
 
+export interface ZenSaveState {
+  grid: Cell[][];
+  score: number;
+  maxCascade: number;
+  totalMovesMade: number;
+  nextCandyId: number;
+}
+
 export interface PlayerSave {
   highestUnlockedLevel: number;
   levels: Record<number, LevelProgress>;
   boosters: Record<BoosterType, number>;
   totalStarsClaimedForBoosters: number;
+  winStreak: number;
+  zenBestScore: number;
+  zenBestCascade: number;
+  zenState: ZenSaveState | null;
   settings: UserSettings;
 }
