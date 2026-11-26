@@ -294,6 +294,10 @@ export function GameScreen(props: GameScreenProps): ReactElement {
     controllerRef.current?.setDisplayOptions({ colorblindMode, reducedMotion });
   }, [colorblindMode, reducedMotion]);
 
+  useEffect(() => {
+    controllerRef.current?.setInputPaused(overlayOpen || modal.kind !== 'none');
+  }, [overlayOpen, modal.kind]);
+
   // Controller is the source of truth for booster selection once it reports one.
   useEffect(() => {
     setActiveBooster(snapshot.activeBooster);

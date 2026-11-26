@@ -96,6 +96,8 @@ interface PointerTrack {
 interface BufferedSwap {
   from: GridPos;
   to: GridPos;
+  fromId: number;
+  toId: number;
   expiresAt: number;
 }
 
@@ -176,6 +178,8 @@ export class GameController {
   private burstsThisFrame = 0;
   private sugarCrushAnnounced = false;
   private sugarCrushResolved: GameState | null = null;
+  private resolvedNotified = false;
+  private inputPaused = false;
   private cometIndex = 0;
 
   private resizeObserver: ResizeObserver | null = null;
@@ -278,6 +282,16 @@ export class GameController {
     this.colorblindMode = opts.colorblindMode;
     this.reducedMotion = opts.reducedMotion;
     this.particles.setReducedMotion(opts.reducedMotion);
+  }
+
+  /** Pauses board input (e.g. when Settings or a modal opens) and clears any queued gesture. */
+  setInputPaused(paused: boolean): void {
+    this.inputPaused = paused;
+    if (paused) {
+      this.bufferedSwap = null;
+      this.pointer = null;
+      this.deselect();
+    }
   }
 
   setActiveBooster(booster: BoosterType | null): void {
@@ -635,7 +649,21 @@ export class GameController {
     this.busy++;
     this.idle = 0;
     this.hintMove = undefined;
-    if (result.valid) this.displayMoves = result.state.movesLeft;
+    if (result.valid) {
+      this.displayMoves = result.state.movesLeft;
+      // Persist Zen state & Saga losses immediately so tapping Map mid-animation never loses progress or keeps a broken streak.
+      if (result.state.level.mode === 'zen') {
+        this.emitZenSnapshotFor(result.state);
+      } else if (result.state.status === 'lost' && !this.resolvedNotified) {
+        this.resolvedNotified = true;
+        this.opts.onLevelResolved?.({
+          won: false,
+          score: result.state.score,
+          stars: calculateStars(result.state.score, result.state.level.starThresholds),
+          maxCascade: result.state.maxCascade,
+        });
+      }
+    }
     this.emit();
     try {
       if (!result.valid && fallbackSwap && !result.phases.some((p) => p.kind === 'swap')) {
@@ -655,34 +683,36 @@ export class GameController {
         this.finalSync();
         if (!this.ended && (this.state.status === 'won' || this.state.status === 'lost')) this.finish();
         this.emit();
-        if (result.valid) this.emitZenSnapshot();
         this.drainBufferedSwap();
       }
     }
   }
 
-  /** Zen mode: hand the settled board to the host so endless play survives a reload. */
-  private emitZenSnapshot(): void {
-    if (this.busy > 0 || this.state.level.mode !== 'zen' || !this.opts.onZenSnapshot) return;
+  /** Zen mode: hand a resolved board to the host so endless play survives a reload or mid-animation exit. */
+  private emitZenSnapshotFor(targetState: GameState): void {
+    if (targetState.level.mode !== 'zen' || !this.opts.onZenSnapshot) return;
     try {
       this.opts.onZenSnapshot({
-        grid: cloneGrid(this.state.grid),
-        score: this.state.score,
-        maxCascade: this.state.maxCascade,
-        totalMovesMade: this.state.totalMovesMade,
-        nextCandyId: this.state.nextCandyId,
+        grid: cloneGrid(targetState.grid),
+        score: targetState.score,
+        maxCascade: targetState.maxCascade,
+        totalMovesMade: targetState.totalMovesMade,
+        nextCandyId: targetState.nextCandyId,
       });
     } catch (err) {
       console.error('[GameController] onZenSnapshot threw', err);
     }
   }
 
-  /** Replays a swipe made while the board was settling, if it is still fresh. */
+  /** Replays a swipe made while the board was settling, only if the exact same candies are still there. */
   private drainBufferedSwap(): void {
     const b = this.bufferedSwap;
     if (!b) return;
     this.bufferedSwap = null;
-    if (nowMs() > b.expiresAt || !this.canInteract() || this.activeBooster === 'hammer') return;
+    if (this.inputPaused || nowMs() > b.expiresAt || !this.canInteract() || this.activeBooster === 'hammer') return;
+    const fromCandy = this.state.grid[b.from.row]?.[b.from.col]?.candy;
+    const toCandy = this.state.grid[b.to.row]?.[b.to.col]?.candy;
+    if (!fromCandy || !toCandy || fromCandy.id !== b.fromId || toCandy.id !== b.toId) return;
     this.deselect();
     this.attemptSwap(b.from, b.to);
   }
@@ -693,7 +723,8 @@ export class GameController {
     const resolved = this.sugarCrushResolved;
     this.sugarCrushResolved = null;
     this.generation++;
-    this.tweens = [];
+    this.flushTweens();
+    this.particles.clear();
     this.dying = [];
     this.oozes = [];
     this.bufferedSwap = null;
@@ -904,7 +935,9 @@ export class GameController {
     let seekerIdx = 0;
     for (const e of ph.events) {
       if (e.type !== 'seeker-fly') continue;
-      const launch = 0.04 + Math.min(seekerIdx, 12) * 0.05;
+      // Gate chained Sugar Bees on the arrival of any incoming bee targeting their origin cell.
+      const incoming = seekerArrive.get(keyOf(e.origin)) ?? 0;
+      const launch = incoming > 0 ? incoming + 0.02 : 0.04 + Math.min(seekerIdx, 12) * 0.05;
       seekerIdx++;
       const o = this.renderer.cellCenter(e.origin.row, e.origin.col);
       const t = this.renderer.cellCenter(e.target.row, e.target.col);
@@ -1570,12 +1603,13 @@ export class GameController {
   private onWindowResize = (): void => this.resize();
 
   private canInteract(): boolean {
-    return this.running && !this.destroyed && this.busy === 0 && !this.ended && this.state.status === 'playing';
+    return !this.inputPaused && this.running && !this.destroyed && this.busy === 0 && !this.ended && this.state.status === 'playing';
   }
 
   /** True while the board is still settling but an early swipe may be buffered for it. */
   private canBufferInput(): boolean {
     return (
+      !this.inputPaused &&
       this.running &&
       !this.destroyed &&
       this.busy > 0 &&
@@ -1585,15 +1619,23 @@ export class GameController {
     );
   }
 
-  /** Swaps now if the board is ready, else holds the swipe in the one-slot buffer. */
+  /** Swaps now if the board is ready, else holds the swipe (pinned to displayed candy IDs) in the one-slot buffer. */
   private requestSwap(from: GridPos, to: GridPos): void {
     if (this.canInteract()) {
       this.bufferedSwap = null;
       this.attemptSwap(from, to);
       return;
     }
-    if (!this.canBufferInput() || !this.cellAt(from)?.playable || !this.cellAt(to)?.playable) return;
-    this.bufferedSwap = { from: { ...from }, to: { ...to }, expiresAt: nowMs() + SWIPE_BUFFER_MS };
+    const fromCell = this.displayGrid[from.row]?.[from.col];
+    const toCell = this.displayGrid[to.row]?.[to.col];
+    if (!this.canBufferInput() || !fromCell?.playable || !toCell?.playable || !fromCell.candy || !toCell.candy) return;
+    this.bufferedSwap = {
+      from: { ...from },
+      to: { ...to },
+      fromId: fromCell.candy.id,
+      toId: toCell.candy.id,
+      expiresAt: nowMs() + SWIPE_BUFFER_MS,
+    };
   }
 
   private localPoint(e: PointerEvent): { x: number; y: number } {
