@@ -64,10 +64,10 @@ export const CANDY_TONES: Record<CandyColor, Tone> = {
 export const CANDY_NAMES: Record<CandyColor, string> = {
   red: 'Ruby Bean',
   orange: 'Tangerine Lozenge',
-  yellow: 'Lemon Star',
-  green: 'Emerald Mint',
-  blue: 'Sapphire Swirl',
-  purple: 'Amethyst Bonbon',
+  yellow: 'Lemon Drop',
+  green: 'Lime Pillow',
+  blue: 'Blueberry Drop',
+  purple: 'Grape Bonbon',
 };
 
 export const BOOSTER_ICON: Record<BoosterType, IconKind> = {
@@ -127,7 +127,10 @@ const STAR_D = starPath(24, 25.5, 20, 9.4);
 const BONBON_D = scallopPath(24, 25, 18.5, 10, 2.6);
 const BEAN_D =
   'M9.6 29.5C5.6 19.6 13.4 8.6 25.4 9.2c10.6.5 17.2 8 14.3 16.6-2 6-8.6 5.6-12.6 8.6-4.6 3.4-5.4 7.6-11.6 7.2-4.8-.4-7.6-5-5.9-12.1z';
-const LOZENGE_D = 'M24 5.5 40.5 15v18L24 42.5 7.5 33V15z';
+const LEMON_DROP_D =
+  'M24 6.5C30 14 38.5 21.5 38.5 29.8c0 7.6-6.5 13-14.5 13S9.5 37.4 9.5 29.8C9.5 21.5 18 14 24 6.5z';
+const PILLOW_D =
+  'M13 8.5c7-1.6 15-1.6 22 0 4.2 1 6.5 3.3 7.5 7.5 1.6 7 1.6 15 0 22-1 4.2-3.3 6.5-7.5 7.5-7 1.6-15 1.6-22 0-4.2-1-6.5-3.3-7.5-7.5-1.6-7-1.6-15 0-22 1-4.2 3.3-6.5 7.5-7.5z';
 
 /* ---------- component ---------- */
 
@@ -203,10 +206,18 @@ function candyBody(color: CandyColor, id: string): ReactElement {
         <g>
           {candyGradient(id, tone)}
           {SHADOW}
-          <path d={LOZENGE_D} fill={fill} stroke={rim} strokeWidth="1.4" strokeLinejoin="round" />
-          <path d="M24 12 34 18v12l-10 6-10-6V18z" fill="#fff" opacity="0.16" />
-          <path d="M24 5.5V12M40.5 15 34 18M7.5 15 14 18M24 42.5V36" stroke="#fff" strokeOpacity="0.35" strokeWidth="1.1" />
-          <Shine id={id} x={18} y={14} rx={6} ry={2.8} rotate={-30} />
+          <ellipse
+            cx="24"
+            cy="24.5"
+            rx="19"
+            ry="13"
+            transform="rotate(-18 24 24.5)"
+            fill={fill}
+            stroke={rim}
+            strokeWidth="1.2"
+          />
+          <Shine id={id} x={19} y={17.5} rx={8.5} ry={3.2} rotate={-22} />
+          <circle cx="33" cy="21" r="1.5" fill="#fff" opacity="0.65" />
         </g>
       );
     case 'yellow':
@@ -214,9 +225,9 @@ function candyBody(color: CandyColor, id: string): ReactElement {
         <g>
           {candyGradient(id, tone)}
           {SHADOW}
-          <path d={STAR_D} fill={fill} stroke={fill} strokeWidth="5" strokeLinejoin="round" />
-          <path d={STAR_D} fill="none" stroke={rim} strokeWidth="1" strokeLinejoin="round" opacity="0.55" />
-          <Shine id={id} x={19.5} y={17} rx={5.6} ry={2.6} rotate={-28} />
+          <path d={LEMON_DROP_D} fill={fill} stroke={rim} strokeWidth="1.2" strokeLinejoin="round" />
+          <Shine id={id} x={18.5} y={24} rx={4.5} ry={7.5} rotate={-14} />
+          <circle cx="29.5" cy="34.5" r="2" fill="#fff8c4" opacity="0.55" />
         </g>
       );
     case 'green':
@@ -224,9 +235,9 @@ function candyBody(color: CandyColor, id: string): ReactElement {
         <g>
           {candyGradient(id, tone)}
           {SHADOW}
-          <rect x="7.5" y="7.5" width="33" height="33" rx="10" fill={fill} stroke={rim} strokeWidth="1.3" />
-          <rect x="13" y="13" width="22" height="22" rx="6.5" fill="none" stroke="#fff" strokeOpacity="0.4" strokeWidth="1.6" />
-          <Shine id={id} x={18} y={14} rx={7} ry={2.8} rotate={-14} />
+          <path d={PILLOW_D} fill={fill} stroke={rim} strokeWidth="1.2" />
+          <Shine id={id} x={18} y={15.5} rx={7.8} ry={3.2} rotate={-16} />
+          <circle cx="32.5" cy="19.5" r="1.5" fill="#fff" opacity="0.65" />
         </g>
       );
     case 'blue':
@@ -234,16 +245,10 @@ function candyBody(color: CandyColor, id: string): ReactElement {
         <g>
           {candyGradient(id, tone)}
           {SHADOW}
-          <circle cx="24" cy="24.5" r="17.5" fill={fill} stroke={rim} strokeWidth="1.3" />
-          <path
-            d="M24 24.5c0-2 2.6-2.8 4-1.2 2.2 2.4-.4 6.4-4 6.4-5 0-7.4-5.6-4.6-9.8 3.4-5 11.4-4.6 14.2 1.2 3.2 6.6-1.6 14-9.6 14"
-            fill="none"
-            stroke="#fff"
-            strokeOpacity="0.85"
-            strokeWidth="2.6"
-            strokeLinecap="round"
-          />
-          <Shine id={id} x={17.5} y={13.5} rx={6.4} ry={2.8} />
+          <circle cx="24" cy="24.5" r="17.5" fill={fill} stroke={rim} strokeWidth="1.2" />
+          <circle cx="24" cy="25" r="10.5" fill="none" stroke="#9fd6ff" strokeOpacity="0.45" strokeWidth="2.4" />
+          <Shine id={id} x={17.5} y={14.5} rx={7} ry={3.2} rotate={-26} />
+          <circle cx="32" cy="18.5" r="1.6" fill="#fff" opacity="0.7" />
         </g>
       );
     case 'purple':

@@ -86,6 +86,42 @@ const GLINT_PERIOD = 5.5;
 /** Per-frame budget for streaming queued sprite bakes, in ms. */
 const IDLE_BAKE_MS = 3;
 const BOMB_CAUSTICS = ['#ff6fa8', '#ffd45c', '#6fe3ff', '#b98cff', '#7dffb0'];
+/** Warm glazed caramel-cocoa every chapter tray tint is pulled toward. */
+const TRAY_COCOA: readonly [number, number, number] = [0x6e, 0x3c, 0x24];
+
+/**
+ * Clamps a chapter's tray tint into the warm caramel-cocoa family so the gold
+ * frame and glazed body never turn muddy olive or teal: cool and green hues are
+ * blended hard toward cocoa, warm plums keep a little of their character.
+ */
+export function warmTrayTint(hex: string): string {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((ch) => ch + ch).join('');
+  const n = parseInt(h.slice(0, 6), 16);
+  if (Number.isNaN(n)) return `rgb(${TRAY_COCOA.join(',')})`;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let hue = 0;
+  if (max !== min) {
+    const d = max - min;
+    if (max === r) hue = ((g - b) / d + 6) % 6;
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60;
+  }
+  // Warm reds/oranges/plums (≥ 290° or ≤ 40°) keep 45%; anything cooler keeps at most 12%.
+  const warm = hue >= 290 || hue <= 40;
+  const keep = max === min ? 0.3 : warm ? 0.45 : 0.12;
+  const mix = (c: number, k: number) => Math.round(c * keep + TRAY_COCOA[k] * (1 - keep));
+  // Never let green dominate red in the result.
+  const R = mix(r, 0);
+  const G = Math.min(mix(g, 1), Math.round(R * 0.62));
+  const B = Math.min(mix(b, 2), Math.round(R * 0.7));
+  return `rgb(${R},${G},${B})`;
+}
 
 export class BoardRenderer {
   readonly atlas: CandySpriteAtlas;
@@ -286,7 +322,7 @@ export class BoardRenderer {
       lctx.restore();
     };
 
-    const trayTint = this.chapter?.trayTint || DEFAULT_TRAY;
+    const trayTint = warmTrayTint(this.chapter?.trayTint || DEFAULT_TRAY);
     const top = oy - cs * 0.5;
     const bottom = oy + L.boardH + cs * 0.5;
     const left = ox - cs * 0.5;
@@ -334,7 +370,7 @@ export class BoardRenderer {
       c.fillStyle = g;
       c.fillRect(0, 0, L.viewW, L.viewH);
       c.globalCompositeOperation = 'multiply';
-      c.globalAlpha = 0.22;
+      c.globalAlpha = 0.14;
       c.fillStyle = trayTint;
       c.fillRect(0, 0, L.viewW, L.viewH);
       c.globalAlpha = 1;
@@ -411,8 +447,9 @@ export class BoardRenderer {
     const wellMask = unionMask(cs * 0.035, cs * 0.2);
     const wells = tinted(wellMask, (c) => {
       const g = c.createLinearGradient(0, oy, 0, oy + L.boardH);
-      g.addColorStop(0, 'rgba(70,40,95,0.78)');
-      g.addColorStop(1, 'rgba(48,24,70,0.84)');
+      // Warm, rich plum-berry wells: candy colours pop without going muddy.
+      g.addColorStop(0, 'rgba(92,42,96,0.8)');
+      g.addColorStop(1, 'rgba(64,24,66,0.86)');
       c.fillStyle = g;
       c.fillRect(0, 0, L.viewW, L.viewH);
       for (let r = 0; r < rows; r++) {
@@ -426,7 +463,7 @@ export class BoardRenderer {
           const fg = c.createLinearGradient(0, oy + r * cs, 0, oy + (r + 1) * cs);
           fg.addColorStop(0, 'rgba(255,255,255,0.07)');
           fg.addColorStop(0.45, 'rgba(255,255,255,0)');
-          fg.addColorStop(1, 'rgba(255,220,255,0.06)');
+          fg.addColorStop(1, 'rgba(255,214,200,0.07)');
           c.fillStyle = fg;
           c.fill();
         }

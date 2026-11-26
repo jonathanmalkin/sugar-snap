@@ -178,7 +178,7 @@ export function HudPanel({
         <div className="hud__badge">
           <span className="hud__chapter">{chapter.name}</span>
           <span className="hud__level">Endless Zen</span>
-          <span className="hud__name">{level.name}</span>
+          <span className="hud__name">{level.subtitle}</span>
         </div>
 
         <ZenDial />

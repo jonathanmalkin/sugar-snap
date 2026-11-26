@@ -7,7 +7,7 @@ export const ZEN_CHAPTER: ChapterDef = {
   accentColor: '#735497',
   bgFrom: '#ffead6',
   bgTo: '#d5c8f1',
-  trayTint: '#437366',
+  trayTint: '#b8764c',
   levelIds: [0],
 }
 

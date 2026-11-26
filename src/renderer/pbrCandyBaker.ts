@@ -111,27 +111,31 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/** Five-point star (iq), point up in y-up space. */
-function sdStar5(px: number, py: number, r: number, rf: number): number {
-  const k1x = 0.809016994375;
-  const k1y = -0.587785252292;
-  const k2x = -k1x;
-  const k2y = k1y;
+/**
+ * Teardrop (iq's uneven capsule) in y-up space: a round base of radius r1 at
+ * the origin flowing smoothly into a rounded tip of radius r2 at (0, hgt).
+ */
+function sdTeardrop(px: number, py: number, r1: number, r2: number, hgt: number): number {
   px = Math.abs(px);
-  let d = Math.max(k1x * px + k1y * py, 0);
-  px -= 2 * d * k1x;
-  py -= 2 * d * k1y;
-  d = Math.max(k2x * px + k2y * py, 0);
-  px -= 2 * d * k2x;
-  py -= 2 * d * k2y;
-  px = Math.abs(px);
-  py -= r;
-  const bax = rf * -k1y;
-  const bay = rf * k1x - 1;
-  const h = Math.min(Math.max((px * bax + py * bay) / (bax * bax + bay * bay), 0), r);
-  const ex = px - bax * h;
-  const ey = py - bay * h;
-  return Math.sqrt(ex * ex + ey * ey) * Math.sign(py * bax - px * bay);
+  const b = (r1 - r2) / hgt;
+  const a = Math.sqrt(1 - b * b);
+  const k = -b * px + a * py;
+  if (k < 0) return len2(px, py) - r1;
+  if (k > a * hgt) return len2(px, py - hgt) - r2;
+  return px * a + py * b - r1;
+}
+
+/** Superellipse "squircle" distance (gradient-normalised; exact enough for AA). */
+function sdSquircle(x: number, y: number, a: number, n: number): number {
+  const ax = Math.abs(x) / a + 1e-6;
+  const ay = Math.abs(y) / a + 1e-6;
+  const px = Math.pow(ax, n);
+  const py = Math.pow(ay, n);
+  const r = Math.pow(px + py, 1 / n);
+  // |∇r| = sqrt(gx² + gy²), gx = (ax/r)^(n-1) / a.
+  const gx = Math.pow(ax / r, n - 1);
+  const gy = Math.pow(ay / r, n - 1);
+  return ((r - 1) * a) / Math.sqrt(gx * gx + gy * gy);
 }
 
 function hash2(x: number, y: number): number {
@@ -223,6 +227,9 @@ const KEY = norm3(-0.42, -0.6, 0.68);
 const RIM = norm3(0.7, -0.46, 0.55);
 const H_KEY = norm3(KEY[0], KEY[1], KEY[2] + 1);
 const H_RIM = norm3(RIM[0], RIM[1], RIM[2] + 1);
+/** Pinpoint sparkle: a tiny hot point light whose glint sits up and right of the softbox pool. */
+const H_PIN = norm3(0.15, -0.44, 0.88);
+const HPX = H_PIN[0], HPY = H_PIN[1], HPZ = H_PIN[2];
 
 function frame(d: readonly number[]): { t1: number[]; t2: number[] } {
   // t1: horizontal tangent (softbox width), t2: completes the frame (softbox height).
@@ -273,7 +280,7 @@ function env(rx: number, ry: number, rz: number): void {
     const v = (rx * K2X + ry * K2Y + rz * K2Z) * iw + 0.42 * u * u; // arch the window
     const sd = sdRoundBox(u, v, 0.62, 0.3, 0.22);
     if (sd < 0.06) {
-      const m = smoothstep(0.06, -0.04, sd) * (4.6 + 1.4 * smoothstep(0.3, -0.3, v));
+      const m = smoothstep(0.06, -0.04, sd) * (6.4 + 1.8 * smoothstep(0.3, -0.3, v));
       er += m;
       eg += m * 0.985;
       eb += m * 0.95;
@@ -427,6 +434,7 @@ function shade(g: GBuf, mats: readonly Mat[], o: ShadeOpts = {}): Shaded {
   const inv2 = ns / (2 * px);
 
   for (let j = 0; j < S; j++) {
+    const py = (j + 0.5) * px - 1 - CY;
     for (let i = 0; i < S; i++) {
       const k = j * S + i;
       const cv = cov[k];
@@ -469,11 +477,15 @@ function shade(g: GBuf, mats: readonly Mat[], o: ShadeOpts = {}): Shaded {
       const amb = M.amb * (0.8 - 0.25 * ny);
       const dif = (M.diff * wrap + amb) * ao;
 
-      // Subsurface: light entering upper-left exits thin edges & lower-right.
+      // Subsurface: key light entering upper-left refracts through the body and
+      // pools as a warm backlit glow inside the lower-right, plus thin edges.
       const lr = nx * 0.55 + ny * 0.83;
       const lrk = lr > 0 ? lr * Math.sqrt(lr) : 0;
       const thin = 1 - clamp01(h[k] * 2.2);
-      const sssK = M.sss * (0.5 * lrk + 0.42 * thin * thin + 0.12) * (0.55 + 0.45 * ao);
+      const pxp = (i + 0.5) * px - 1;
+      const lrp = clamp01(((pxp * 0.55 + py * 0.83) + 0.05) / 0.7);
+      const caus = lrp * lrp * (3 - 2 * lrp) * clamp01(h[k] * 4);
+      const sssK = M.sss * (0.62 * lrk + 0.42 * thin * thin + 0.38 * caus + 0.12) * (0.55 + 0.45 * ao);
 
       // Fresnel.
       const fm = 1 - nz;
@@ -508,7 +520,17 @@ function shade(g: GBuf, mats: readonly Mat[], o: ShadeOpts = {}): Shaded {
       r64 *= r64;
       r64 *= r64;
       r64 *= r64;
-      const lob = (M.broad * n24 * 0.55 + M.sharp * sh * 2.4) * (0.4 + 0.6 * ao);
+      // Pinpoint sparkle: nh^512, only on glossy materials.
+      let pin = 0;
+      if (M.sharpSq >= 8) {
+        const npRaw = nx * HPX + ny * HPY + nz * HPZ;
+        if (npRaw > 0.98) {
+          let q = npRaw;
+          for (let t = 0; t < 9; t++) q *= q; // ^512
+          pin = q * M.sharp * 1.9;
+        }
+      }
+      const lob = (M.broad * n24 * 0.55 + M.sharp * sh * 2.0 + pin) * (0.4 + 0.6 * ao);
       const lobR = M.broad * r64 * 0.5;
 
       const rimK = M.rim * f4;
@@ -655,12 +677,12 @@ interface Pal {
 }
 
 const PAL: Record<PbrCandyColor | 'none', Pal> = {
-  red: { base: [0.93, 0.07, 0.2], light: [1, 0.55, 0.6], deep: [0.38, 0.0, 0.07], sss: [1, 0.32, 0.3], glow: [1, 0.35, 0.4] },
-  orange: { base: [1, 0.5, 0.05], light: [1, 0.85, 0.55], deep: [0.55, 0.16, 0.0], sss: [1, 0.78, 0.28], glow: [1, 0.66, 0.25] },
-  yellow: { base: [1, 0.82, 0.12], light: [1, 0.97, 0.7], deep: [0.72, 0.42, 0.0], sss: [1, 0.93, 0.5], glow: [1, 0.88, 0.35] },
-  green: { base: [0.1, 0.74, 0.32], light: [0.7, 1, 0.75], deep: [0.0, 0.27, 0.1], sss: [0.55, 1, 0.55], glow: [0.4, 1, 0.55] },
-  blue: { base: [0.1, 0.42, 0.98], light: [0.75, 0.88, 1], deep: [0.02, 0.08, 0.42], sss: [0.45, 0.78, 1], glow: [0.4, 0.7, 1] },
-  purple: { base: [0.6, 0.2, 0.94], light: [0.92, 0.75, 1], deep: [0.22, 0.02, 0.42], sss: [0.95, 0.55, 1], glow: [0.8, 0.5, 1] },
+  red: { base: [0.9, 0.04, 0.17], light: [1, 0.58, 0.62], deep: [0.36, 0.0, 0.07], sss: [1, 0.36, 0.3], glow: [1, 0.32, 0.36] },
+  orange: { base: [1, 0.47, 0.04], light: [1, 0.86, 0.55], deep: [0.55, 0.15, 0.0], sss: [1, 0.74, 0.3], glow: [1, 0.66, 0.25] },
+  yellow: { base: [1, 0.8, 0.1], light: [1, 0.97, 0.7], deep: [0.72, 0.42, 0.0], sss: [1, 0.93, 0.48], glow: [1, 0.88, 0.35] },
+  green: { base: [0.12, 0.76, 0.26], light: [0.75, 1, 0.7], deep: [0.0, 0.27, 0.08], sss: [0.68, 1, 0.42], glow: [0.5, 1, 0.5] },
+  blue: { base: [0.05, 0.3, 0.92], light: [0.7, 0.88, 1], deep: [0.01, 0.06, 0.38], sss: [0.35, 0.92, 1], glow: [0.3, 0.85, 1] },
+  purple: { base: [0.64, 0.25, 0.98], light: [0.94, 0.78, 1], deep: [0.24, 0.03, 0.45], sss: [1, 0.62, 1], glow: [0.86, 0.56, 1] },
   none: { base: [0.93, 0.88, 1], light: [1, 1, 1], deep: [0.4, 0.32, 0.55], sss: [1, 0.95, 1], glow: [1, 0.92, 0.7] },
 };
 
@@ -698,94 +720,95 @@ function beanFn(p: Pal): SampleFn {
   };
 }
 
-/** Tangerine gem: elongated octagon crown with girdle, kite facets and a table. */
-function gemFn(p: Pal): SampleFn {
-  const D1: Array<[number, number]> = [];
-  const D2: Array<[number, number]> = [];
-  for (let k = 0; k < 8; k++) {
-    const a1 = (k * Math.PI) / 4;
-    const a2 = a1 + Math.PI / 8;
-    D1.push([Math.cos(a1), Math.sin(a1)]);
-    D2.push([Math.cos(a2), Math.sin(a2)]);
-  }
-  const R1 = 0.66;
-  const S1 = 1.55;
-  const R2 = 0.77;
-  const S2 = 0.6;
-  const TABLE = 0.31;
-  return (x, y, s) => {
-    const qx = x / 1.12;
-    const qy = (y - CY) / 0.98;
-    let d = -1;
-    let min1 = TABLE;
-    let min2 = 9;
-    let id = 0;
-    for (let k = 0; k < 8; k++) {
-      const t = qx * D1[k][0] + qy * D1[k][1];
-      if (t - R1 > d) d = t - R1;
-      const hv = S1 * (R1 - t);
-      if (hv < min1) {
-        min2 = min1;
-        min1 = hv;
-        id = k + 1;
-      } else if (hv < min2) min2 = hv;
-      const t2 = qx * D2[k][0] + qy * D2[k][1];
-      const hv2 = S2 * (R2 - t2);
-      if (hv2 < min1) {
-        min2 = min1;
-        min1 = hv2;
-        id = k + 9;
-      } else if (hv2 < min2) min2 = hv2;
-    }
-    s.d = d * 1.05;
-    if (s.d > 0.04) return;
-    s.h = min1;
-    // Per-facet fire and bright ridges between facets.
-    const fire = id === 0 ? 1.12 : 0.86 + 0.26 * hash2(id, 7);
-    s.r = Math.min(1, p.base[0] * fire);
-    s.g = Math.min(1, p.base[1] * fire);
-    s.b = Math.min(1, p.base[2] * fire);
-    const ridge = 1 - smoothstep(0, 0.018, min2 - min1);
-    s.e = ridge * 0.16 * (id === 0 ? 0.6 : 1);
-  };
-}
-
-/** Lemon gummy star: inflated pillowy star with thick rounded tips. */
-function starFn(p: Pal): SampleFn {
-  return (x, y, s) => {
-    const yy = y - CY - 0.02;
-    const d = sdStar5(x, -yy, 0.78, 0.52) - 0.11;
-    s.d = d;
-    if (d > 0.04) return;
-    const rr = x * x + yy * yy;
-    s.h = inflate(-d, 0.3) * 0.95 + 0.2 * Math.max(0, 1 - rr / 0.42);
-    set(s, p.base);
-  };
-}
-
-/** Emerald mint cushion: beveled pillow square with a raised jewel face. */
-function cushionFn(p: Pal): SampleFn {
+/**
+ * Tangerine oval lozenge: a smooth, tilted citrus hard-candy drop. One
+ * continuous pillowy dome (no facets or polygon edges) so the softbox slides
+ * across it as a single sweeping curved mirror sheen.
+ */
+function lozengeFn(p: Pal): SampleFn {
+  const a = -0.31; // ~-18°: the long axis leans up to the right
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const A = 0.82;
+  const B = 0.6;
   return (x, y, s) => {
     const yy = y - CY;
-    const d = sdRoundBox(x, yy, 0.69, 0.69, 0.3);
+    const u = x * ca + yy * sa;
+    const v = -x * sa + yy * ca;
+    const d = sdEllipse(u, v, A, B);
     s.d = d;
     if (d > 0.04) return;
-    const dx = Math.max(0, 1 - (x / 0.78) ** 2);
-    const dy = Math.max(0, 1 - (yy / 0.78) ** 2);
-    const d2 = sdRoundBox(x, yy, 0.42, 0.42, 0.17);
-    const face = smoothstep(0.035, -0.035, d2);
-    s.h = inflate(-d, 0.3) * 0.85 + 0.12 * dx * dy + 0.055 * face;
+    const q = 1 - (u * u) / (A * A) - (v * v) / (B * B);
+    // Rounded bevel at the rim blended into a broad ellipsoid crown.
+    s.h = inflate(-d, 0.36) * 0.78 + 0.22 * (q > 0 ? Math.sqrt(q) : 0);
     set(s, p.base);
   };
 }
 
-/** Sapphire swirl orb: sphere with surface-wrapped peppermint bands. */
+/**
+ * Classic lemon drop: a plump pear/teardrop hard candy. A lush round base
+ * flows up into a soft rounded droplet tip leaning toward the upper right.
+ */
+function lemonDropFn(p: Pal): SampleFn {
+  const a = 0.36; // tip leans ~20° clockwise from straight up
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const R1 = 0.6;
+  const R2 = 0.27;
+  const HG = 0.64;
+  // Centre the drop's extent ([-R1, HG + R2] along its axis) on the sprite.
+  const BY = 0.15; // base centre sits this far below the sprite centre (y-down)
+  return (x, y, s) => {
+    const dx = x - 0.02;
+    const dy = y - CY - BY;
+    // Axis-local coords: v runs up the drop toward the tip (y-up).
+    const u = dx * ca + dy * sa;
+    const v = dx * sa - dy * ca;
+    // Soft-union the drop with its base so the shoulders swell into a pear.
+    const d = smin(sdTeardrop(u, v, R1, R2, HG), len2(u, v + 0.02) - R1 * 1.02, 0.12);
+    s.d = d;
+    if (d > 0.04) return;
+    // Plump circular-profile body, extra crown over the bulbous base.
+    const rb = (u * u + (v - 0.1) * (v - 0.1)) / (R1 * R1);
+    s.h = inflate(-d, 0.42) * 0.98 + 0.12 * Math.max(0, 1 - rb);
+    set(s, p.base);
+  };
+}
+
+/**
+ * Lime gummy pillow: a puffed, squishy cushion with gently bowed convex sides
+ * and soft corners, domed continuously all the way across the middle.
+ */
+function pillowFn(p: Pal): SampleFn {
+  const a = 0.07; // a hint of tilt so it never reads as a rigid UI tile
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const R = 0.76;
+  return (x, y, s) => {
+    const yy = y - CY;
+    const u = x * ca + yy * sa;
+    const v = -x * sa + yy * ca;
+    const d = sdSquircle(u, v, R, 2.9);
+    s.d = d;
+    if (d > 0.04) return;
+    const du = Math.max(0, 1 - (u / R) * (u / R));
+    const dv = Math.max(0, 1 - (v / R) * (v / R));
+    // Soft rolled edge + a continuous stuffed crown (no plateau).
+    s.h = inflate(-d, 0.26) * 0.7 + 0.34 * Math.sqrt(du * dv);
+    set(s, p.base);
+  };
+}
+
+/**
+ * Blueberry hard-candy drop: a plump glossy sphere with a shallow sculpted
+ * swirl dimple, tone-on-tone cobalt to cerulean (never white, so striped
+ * candies stay unmistakable).
+ */
 function orbFn(p: Pal, swirl: boolean): SampleFn {
   const R = 0.76;
-  const tilt = 0.55;
-  const ct = Math.cos(tilt);
-  const st = Math.sin(tilt);
-  const cream: RGB = [0.99, 0.97, 0.95];
+  const cer: RGB = [0.16, 0.62, 1.0];
+  const DX = 0.04;
+  const DY = 0.03;
   return (x, y, s) => {
     const yy = y - CY;
     const rr = x * x + yy * yy;
@@ -794,25 +817,20 @@ function orbFn(p: Pal, swirl: boolean): SampleFn {
     if (d > 0.04) return;
     const z = Math.sqrt(Math.max(0, R * R - rr));
     s.h = z;
-    if (!swirl) {
-      set(s, p.base);
-      return;
-    }
-    // Unit sphere point, tilted so the swirl's pole leans up toward the light.
-    const ux = x / R;
-    const uy = yy / R;
-    const uz = z / R;
-    const py = uy * ct - uz * st;
-    const pz = uy * st + uz * ct;
-    const phi = Math.atan2(py, ux);
-    const lat = Math.acos(Math.max(-1, Math.min(1, pz)));
-    const f = Math.sin(phi * 4 + lat * 2.6);
-    const w = smoothstep(0.12, 0.3, f);
-    s.r = p.base[0] + (cream[0] - p.base[0]) * w;
-    s.g = p.base[1] + (cream[1] - p.base[1]) * w;
-    s.b = p.base[2] + (cream[2] - p.base[2]) * w;
-    s.m = w > 0.5 ? 1 : 0;
-    s.h = z + 0.012 * w;
+    set(s, p.base);
+    if (!swirl) return;
+    // Pinwheel swirl spiralling into a shallow pressed dimple near the crown.
+    const sx = x - DX;
+    const sy = yy - DY;
+    const r = len2(sx, sy);
+    const phi = Math.atan2(sy, sx);
+    const f = Math.sin(phi * 3 + r * 7);
+    const fade = smoothstep(0.06, 0.26, r) * (1 - smoothstep(0.46, 0.72, r));
+    const w = (0.5 + 0.5 * f) * fade;
+    s.r = p.base[0] + (cer[0] - p.base[0]) * w * 0.72;
+    s.g = p.base[1] + (cer[1] - p.base[1]) * w * 0.72;
+    s.b = p.base[2] + (cer[2] - p.base[2]) * w * 0.72;
+    s.h = z + 0.01 * f * fade - 0.032 * Math.exp(-(r * r) / 0.05);
   };
 }
 
@@ -855,11 +873,11 @@ function regularFn(color: PbrCandyColor | 'none', swirl = true): SampleFn {
     case 'red':
       return beanFn(p);
     case 'orange':
-      return gemFn(p);
+      return lozengeFn(p);
     case 'yellow':
-      return starFn(p);
+      return lemonDropFn(p);
     case 'green':
-      return cushionFn(p);
+      return pillowFn(p);
     case 'blue':
       return orbFn(p, swirl);
     case 'purple':
@@ -871,24 +889,31 @@ function regularFn(color: PbrCandyColor | 'none', swirl = true): SampleFn {
 
 function candyMats(color: PbrCandyColor | 'none'): Mat[] {
   const p = PAL[color];
-  const body = mat({ sssC: p.sss, rimC: p.light, sss: 0.75, rim: 0.45 });
+  // Wet sugar glaze: strong mirror, generous backlit translucency.
+  const body = mat({ sssC: p.sss, rimC: p.light, sss: 0.9, rim: 0.5, spec: 1.15 });
   switch (color) {
+    case 'red':
+      body.sss = 1.0;
+      break;
     case 'orange':
       body.spec = 1.25;
-      body.sharp = 1.9;
-      body.sss = 0.85;
-      body.deepen = 0.35;
+      body.sss = 1.05;
+      body.deepen = 0.5;
       break;
     case 'yellow':
-      body.sss = 0.95;
+      body.sss = 1.05;
       body.deepen = 0.55;
-      body.broad = 0.5;
+      break;
+    case 'green':
+      body.sss = 1.05;
+      body.deepen = 0.6;
       break;
     case 'blue':
-      body.spec = 1.15;
+      body.spec = 1.3;
+      body.sss = 0.95;
       break;
     case 'purple':
-      body.sss = 0.85;
+      body.sss = 1.05;
       break;
   }
   const enamel = mat({ sss: 0.25, sssC: [1, 0.95, 0.92], deepen: 0.12, broad: 0.55, sharp: 1.8, rim: 0.3 });

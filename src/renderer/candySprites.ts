@@ -18,7 +18,6 @@ import type { Candy, CandyColor, IngredientType } from '../engine/types';
 import { bakePbrSprite, pbrBakeSize, releasePbrMemo, type PbrSpriteSpec } from './pbrCandyBaker';
 
 type Ctx = CanvasRenderingContext2D;
-type Pt = readonly [number, number];
 
 export interface CandyPalette {
   light: string;
@@ -73,24 +72,24 @@ export const CANDY_PALETTES: Record<CandyColor, CandyPalette> = {
     particle: '#41d870',
   },
   blue: {
-    light: '#d2ecff',
-    base: '#44a3ff',
-    mid: '#1c76f2',
-    dark: '#0b45b0',
-    deep: '#041c57',
-    glow: '#a8d9ff',
-    rim: '#dcf2ff',
-    particle: '#4aa3ff',
+    light: '#c9ecff',
+    base: '#2f8cff',
+    mid: '#1560ea',
+    dark: '#0a3cb0',
+    deep: '#03185a',
+    glow: '#8fe4ff',
+    rim: '#d4f4ff',
+    particle: '#3a9bff',
   },
   purple: {
-    light: '#f0d4ff',
-    base: '#b963ff',
-    mid: '#9636ee',
-    dark: '#5d13a6',
-    deep: '#2a0352',
-    glow: '#e6b3ff',
-    rim: '#f6e0ff',
-    particle: '#b866ff',
+    light: '#f3dcff',
+    base: '#c06dff',
+    mid: '#a044f5',
+    dark: '#6418ad',
+    deep: '#2d0457',
+    glow: '#ecbfff',
+    rim: '#f8e6ff',
+    particle: '#c072ff',
   },
 };
 
@@ -148,32 +147,6 @@ export function roundRectPath(p: Path2D | Ctx, x: number, y: number, w: number, 
   p.closePath();
 }
 
-function roundedPolygon(pts: Pt[], radii: number[]): Path2D {
-  const p = new Path2D();
-  const n = pts.length;
-  const mid = (a: Pt, b: Pt): Pt => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  const start = mid(pts[n - 1], pts[0]);
-  p.moveTo(start[0], start[1]);
-  for (let i = 0; i < n; i++) {
-    const cur = pts[i];
-    const next = pts[(i + 1) % n];
-    const m = mid(cur, next);
-    p.arcTo(cur[0], cur[1], m[0], m[1], radii[i % radii.length]);
-  }
-  p.closePath();
-  return p;
-}
-
-function starPoints(S: number, cx: number, cy: number, ro: number, ri: number): Pt[] {
-  const pts: Pt[] = [];
-  for (let i = 0; i < 10; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    const r = i % 2 === 0 ? ro : ri;
-    pts.push([(cx + Math.cos(a) * r) * S, (cy + Math.sin(a) * r) * S]);
-  }
-  return pts;
-}
-
 /* -------------------------------------------------------------------------- */
 /* Canvas 2D overlays: colourblind badges, glows                               */
 /* -------------------------------------------------------------------------- */
@@ -183,36 +156,43 @@ function badgePath(color: CandyColor, S: number): { path: Path2D; ring: boolean 
   const cy = S * 0.5;
   const r = S * 0.13;
   const p = new Path2D();
+  // Each glyph echoes its candy's silhouette: heart (cherry bean), tilted oval
+  // (tangerine lozenge), droplet (lemon drop), rounded square (lime pillow),
+  // ring (blueberry drop) and a three-berry cluster (grape bonbon).
   switch (color) {
-    case 'red': // droplet
+    case 'red': // heart
+      p.moveTo(cx, cy + r * 1.05);
+      p.bezierCurveTo(cx - r * 1.35, cy + r * 0.1, cx - r * 1.05, cy - r * 1.1, cx, cy - r * 0.45);
+      p.bezierCurveTo(cx + r * 1.05, cy - r * 1.1, cx + r * 1.35, cy + r * 0.1, cx, cy + r * 1.05);
+      p.closePath();
+      return { path: p, ring: false };
+    case 'orange': // tilted oval
+      p.ellipse(cx, cy, r * 1.15, r * 0.78, -0.31, 0, Math.PI * 2);
+      return { path: p, ring: false };
+    case 'yellow': // droplet
       p.moveTo(cx, cy - r * 1.25);
       p.bezierCurveTo(cx + r * 0.3, cy - r * 0.6, cx + r, cy - r * 0.05, cx + r, cy + r * 0.3);
       p.arc(cx, cy + r * 0.3, r, 0, Math.PI);
       p.bezierCurveTo(cx - r, cy - r * 0.05, cx - r * 0.3, cy - r * 0.6, cx, cy - r * 1.25);
       p.closePath();
       return { path: p, ring: false };
-    case 'orange': // diamond
-      p.moveTo(cx, cy - r * 1.2);
-      p.lineTo(cx + r * 0.95, cy);
-      p.lineTo(cx, cy + r * 1.2);
-      p.lineTo(cx - r * 0.95, cy);
-      p.closePath();
-      return { path: p, ring: false };
-    case 'yellow':
-      return { path: roundedPolygon(starPoints(S, 0.5, 0.51, 0.16, 0.075), [S * 0.012, S * 0.01]), ring: false };
     case 'green':
-      roundRectPath(p, cx - r * 0.9, cy - r * 0.9, r * 1.8, r * 1.8, r * 0.25);
+      roundRectPath(p, cx - r * 0.9, cy - r * 0.9, r * 1.8, r * 1.8, r * 0.45);
       return { path: p, ring: false };
     case 'blue':
       p.arc(cx, cy, r * 0.85, 0, Math.PI * 2);
       return { path: p, ring: true };
     case 'purple': {
-      const pts: Pt[] = [];
-      for (let i = 0; i < 6; i++) {
-        const a = Math.PI / 6 + (i * Math.PI) / 3;
-        pts.push([cx + Math.cos(a) * r * 1.05, cy + Math.sin(a) * r * 1.05]);
+      // Three berries in a triangle.
+      const br = r * 0.56;
+      for (let i = 0; i < 3; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI * 2) / 3;
+        const bx = cx + Math.cos(a) * r * 0.58;
+        const by = cy + Math.sin(a) * r * 0.58;
+        p.moveTo(bx + br, by);
+        p.arc(bx, by, br, 0, Math.PI * 2);
       }
-      return { path: roundedPolygon(pts, [S * 0.01]), ring: false };
+      return { path: p, ring: false };
     }
   }
 }
