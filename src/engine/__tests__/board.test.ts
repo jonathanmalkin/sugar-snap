@@ -141,7 +141,7 @@ describe('helpers', () => {
     const progress = computeObjectivesProgress(lv, parseBoardSpec(['r:j g:J b']), 600, { reds: 12 }, { cherry: 1 });
     expect(progress.map((o) => [o.id, o.current, o.completed])).toEqual([
       ['score', 600, true],
-      ['jelly', 3, false],
+      ['jelly', 2, false],
       ['cherry', 1, false],
       ['reds', 10, true],
     ]);

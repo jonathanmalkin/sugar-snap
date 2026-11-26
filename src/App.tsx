@@ -7,8 +7,10 @@ import { SagaMap } from './components/SagaMap';
 import { SettingsModal } from './components/SettingsModal';
 import { LEVELS } from './levels';
 import {
+  STORAGE_KEY,
   consumeBooster,
   loadSave,
+  mutateSave,
   recordLevelCompletion,
   resetPlayerSave,
   savePlayerData,
@@ -39,6 +41,18 @@ export function App(): ReactElement {
     saveRef.current = next;
     setSave(next);
     savePlayerData(next);
+  }, []);
+
+  // Keep open tabs synchronized if another tab updates Sugar Snap progress.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== STORAGE_KEY) return;
+      const fresh = loadSave();
+      saveRef.current = fresh;
+      setSave(fresh);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const { settings } = save;
@@ -101,26 +115,31 @@ export function App(): ReactElement {
 
   /* ---------- save mutations ---------- */
 
-  const handleBoosterConsumed = useCallback(
-    (booster: BoosterType) => commit(consumeBooster(saveRef.current, booster)),
-    [commit]
-  );
+  const handleBoosterConsumed = useCallback((booster: BoosterType) => {
+    const { save: next } = mutateSave((latest) => ({ save: consumeBooster(latest, booster), result: undefined }));
+    saveRef.current = next;
+    setSave(next);
+  }, []);
 
-  const handleLevelWon = useCallback(
-    (levelId: number, score: number, stars: 1 | 2 | 3): LevelWinRecord => {
-      const prev = saveRef.current;
-      const prevBest = prev.levels[levelId]?.bestScore ?? 0;
-      const { save: next, awardedBoosters } = recordLevelCompletion(prev, levelId, score, stars);
-      commit(next);
-      return { awardedBoosters, bestScore: Math.max(prevBest, score), isNewBest: score > prevBest };
-    },
-    [commit]
-  );
+  const handleLevelWon = useCallback((levelId: number, score: number, stars: 1 | 2 | 3): LevelWinRecord => {
+    const { save: next, result } = mutateSave((latest) => {
+      const prevBest = latest.levels[levelId]?.bestScore ?? 0;
+      const { save: updated, awardedBoosters } = recordLevelCompletion(latest, levelId, score, stars);
+      return {
+        save: updated,
+        result: { awardedBoosters, bestScore: Math.max(prevBest, score), isNewBest: score > prevBest },
+      };
+    });
+    saveRef.current = next;
+    setSave(next);
+    return result;
+  }, []);
 
-  const handleSettingsChange = useCallback(
-    (partial: Partial<UserSettings>) => commit(updateUserSettings(saveRef.current, partial)),
-    [commit]
-  );
+  const handleSettingsChange = useCallback((partial: Partial<UserSettings>) => {
+    const { save: next } = mutateSave((latest) => ({ save: updateUserSettings(latest, partial), result: undefined }));
+    saveRef.current = next;
+    setSave(next);
+  }, []);
 
   const handleReset = useCallback(() => {
     commit(resetPlayerSave());

@@ -28,7 +28,7 @@ describe('25-level Saga integration with engine', () => {
       const moves = findValidMoves(state.grid);
       expect(moves.length).toBeGreaterThan(0);
 
-      // Exact jelly objective count matches board jelly layers
+      // Exact jelly objective count matches board jelly layers AND starts at 0 progress
       const jellyObj = state.objectives.find((o) => o.kind === 'jelly');
       if (jellyObj) {
         let totalJelly = 0;
@@ -36,6 +36,8 @@ describe('25-level Saga integration with engine', () => {
           for (const cell of row) totalJelly += cell.jelly;
         }
         expect(jellyObj.target).toBe(totalJelly);
+        expect(jellyObj.current).toBe(0);
+        expect(jellyObj.completed).toBe(false);
       }
 
       // Executing the first suggested valid move succeeds and updates state cleanly

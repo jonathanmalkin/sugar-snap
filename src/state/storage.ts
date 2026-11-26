@@ -106,6 +106,19 @@ export function savePlayerData(save: PlayerSave): void {
   }
 }
 
+/**
+ * Re-read the latest persisted save before applying a mutation so a stale tab
+ * cannot overwrite level unlocks, stars, or booster counts earned in another tab.
+ */
+export function mutateSave<T>(
+  mutator: (latest: PlayerSave) => { save: PlayerSave; result: T },
+): { save: PlayerSave; result: T } {
+  const latest = loadSave()
+  const out = mutator(latest)
+  savePlayerData(out.save)
+  return out
+}
+
 export function getTotalStars(save: PlayerSave): number {
   return Object.values(save.levels).reduce((total, level) => total + level.stars, 0)
 }

@@ -153,7 +153,7 @@ export interface VictoryModalProps {
   onMap: () => void;
 }
 
-const VICTORY_TITLES = ['', 'Sweet!', 'Delicious!', 'Divine!'];
+const VICTORY_TITLES = ['', 'Snappy!', 'Yummy!', 'Spectacular!'];
 
 export function VictoryModal({
   level,

@@ -93,8 +93,6 @@ const SCHEDULE_AHEAD = 0.12;
 
 export class SoundEngine implements ISoundEngine {
   private ctx: AudioContext | null = null;
-  private compressor: DynamicsCompressorNode | null = null;
-  private master: GainNode | null = null;
   private sfxBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private musicFilter: BiquadFilterNode | null = null;
@@ -103,6 +101,7 @@ export class SoundEngine implements ISoundEngine {
   private settings: SoundSettings = { ...DEFAULT_SETTINGS };
   private unlocked = false;
   private disposed = false;
+  private suspendPending: Promise<void> | null = null;
 
   private musicWanted = false;
   private musicTimer: ReturnType<typeof setInterval> | null = null;
@@ -115,7 +114,19 @@ export class SoundEngine implements ISoundEngine {
     const ctx = this.ctx;
     if (!ctx || this.disposed) return;
     if (document.visibilityState === 'hidden') {
-      if (ctx.state === 'running') void ctx.suspend().catch(() => undefined);
+      if (ctx.state === 'running') {
+        const pending = ctx.suspend().catch(() => undefined).finally(() => {
+          if (this.suspendPending === pending) this.suspendPending = null;
+          if (!this.disposed && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            this.resumeContext();
+          }
+        });
+        this.suspendPending = pending;
+      }
+    } else if (this.suspendPending) {
+      void this.suspendPending.then(() => {
+        if (!this.disposed && document.visibilityState === 'visible') this.resumeContext();
+      });
     } else {
       this.resumeContext();
     }
@@ -197,8 +208,7 @@ export class SoundEngine implements ISoundEngine {
     }
     const ctx = this.ctx;
     this.ctx = null;
-    this.compressor = null;
-    this.master = null;
+    this.suspendPending = null;
     this.sfxBus = null;
     this.musicBus = null;
     this.musicFilter = null;
@@ -260,8 +270,6 @@ export class SoundEngine implements ISoundEngine {
     for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
 
     this.ctx = ctx;
-    this.compressor = compressor;
-    this.master = master;
     this.sfxBus = sfxBus;
     this.musicBus = musicBus;
     this.musicFilter = musicFilter;

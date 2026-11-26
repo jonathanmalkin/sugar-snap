@@ -51,6 +51,8 @@ export interface GameControllerOptions {
     isAnimating: boolean;
   }) => void;
   onBoosterConsumed: (booster: BoosterType) => void;
+  /** Fires as soon as the final win/loss state is computed (before finale animation ends) so progress persists immediately. */
+  onLevelResolved?: (result: { won: boolean; score: number; stars: 0 | 1 | 2 | 3; maxCascade: number }) => void;
   onLevelEnd: (result: { won: boolean; score: number; stars: 0 | 1 | 2 | 3; maxCascade: number }) => void;
 }
 
@@ -81,6 +83,8 @@ interface PointerTrack {
   cell: GridPos;
   wasSelected: boolean;
   swiped: boolean;
+  /** Set when pointerdown hits a neighbor of an already-selected cell; committed on release if no swipe happens. */
+  pendingTapSwap: GridPos | null;
 }
 
 /** Bonus-round banner: the game's own word, matching the engine's choice not to emit a finale callout. */
@@ -635,26 +639,52 @@ export class GameController {
   }
 
   private async afterResolve(gen: number): Promise<void> {
-    let guard = 0;
-    while (this.state.status === 'sugar-crush' && guard < 4) {
-      guard++;
-      let crush: StepResult;
-      try {
-        crush = executeSugarCrush(this.state);
-      } catch (err) {
-        console.error('[GameController] sugar crush failed', err);
-        break;
+    if (this.state.status === 'sugar-crush') {
+      const crushRuns: StepResult[] = [];
+      let resolvedState = this.state;
+      let guard = 0;
+      while (resolvedState.status === 'sugar-crush' && guard < 4) {
+        guard++;
+        try {
+          const crush = executeSugarCrush(resolvedState);
+          crushRuns.push(crush);
+          resolvedState = crush.state;
+        } catch (err) {
+          console.error('[GameController] sugar crush failed', err);
+          break;
+        }
       }
-      if (!this.sugarCrushAnnounced) this.showFinale();
-      await this.wait(guard === 1 ? 0.75 : 0.2);
-      if (gen !== this.generation) return;
-      this.displayStatus = 'sugar-crush';
-      this.emit();
-      await this.playPhases(crush.phases, gen);
-      if (gen !== this.generation) return;
-      this.state = crush.state;
+      if (resolvedState.status === 'sugar-crush') resolvedState = { ...resolvedState, status: 'won' };
+      // Persist the earned win immediately so leaving via Map/Retry mid-finale never discards progress.
+      const finalScore = resolvedState.score;
+      const finalStars = calculateStars(finalScore, resolvedState.level.starThresholds);
+      this.opts.onLevelResolved?.({
+        won: resolvedState.status === 'won',
+        score: finalScore,
+        stars: finalStars,
+        maxCascade: resolvedState.maxCascade,
+      });
+
+      for (let i = 0; i < crushRuns.length; i++) {
+        if (!this.sugarCrushAnnounced) this.showFinale();
+        await this.wait(i === 0 ? 0.75 : 0.2);
+        if (gen !== this.generation) return;
+        this.displayStatus = 'sugar-crush';
+        this.emit();
+        await this.playPhases(crushRuns[i].phases, gen);
+        if (gen !== this.generation) return;
+      }
+      this.state = resolvedState;
+    } else if (this.state.status === 'won' || this.state.status === 'lost') {
+      const score = this.state.score;
+      const stars = calculateStars(score, this.state.level.starThresholds);
+      this.opts.onLevelResolved?.({
+        won: this.state.status === 'won',
+        score,
+        stars,
+        maxCascade: this.state.maxCascade,
+      });
     }
-    if (this.state.status === 'sugar-crush') this.state = { ...this.state, status: 'won' };
   }
 
   private finalSync(): void {
@@ -1454,22 +1484,18 @@ export class GameController {
       return;
     }
 
-    if (this.selected && !samePos(this.selected, pos) && isAdjacent(this.selected, pos)) {
-      const from = this.selected;
-      this.deselect();
-      this.attemptSwap(from, pos);
-      return;
-    }
+    const pendingTapSwap =
+      this.selected && !samePos(this.selected, pos) && isAdjacent(this.selected, pos) ? { ...this.selected } : null;
 
     const wasSelected = samePos(this.selected, pos);
     if (cell.candy && !cell.locked) {
-      if (!wasSelected) this.select(pos);
+      if (!wasSelected && !pendingTapSwap) this.select(pos);
     } else {
       if (cell.candy && cell.locked) this.wobble(pos);
       this.deselect();
       return;
     }
-    this.pointer = { id: e.pointerId, startX: pt.x, startY: pt.y, cell: pos, wasSelected, swiped: false };
+    this.pointer = { id: e.pointerId, startX: pt.x, startY: pt.y, cell: pos, wasSelected, swiped: false, pendingTapSwap };
   };
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -1507,7 +1533,14 @@ export class GameController {
     } catch {
       /* not captured */
     }
-    if (!p.swiped && p.wasSelected) this.deselect();
+    if (!p.swiped) {
+      if (p.pendingTapSwap) {
+        this.deselect();
+        if (this.canInteract()) this.attemptSwap(p.pendingTapSwap, p.cell);
+      } else if (p.wasSelected) {
+        this.deselect();
+      }
+    }
     if (e.pointerType === 'touch') this.setHover(null);
     this.resetIdle();
   };

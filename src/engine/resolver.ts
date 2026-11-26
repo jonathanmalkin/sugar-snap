@@ -604,8 +604,12 @@ export function finishTurn(ctx: ResolveContext): StepResult {
   else if (findValidMoves(s.grid).length === 0) {
     const { grid, mappings } = shuffleBoard(s, ctx.rng);
     s.grid = grid;
-    pushPhase(ctx, 'shuffle', [{ type: 'shuffle', mappings }]);
-    didShuffle = true;
+    if (findValidMoves(s.grid).length === 0) {
+      s.status = 'lost';
+    } else {
+      pushPhase(ctx, 'shuffle', [{ type: 'shuffle', mappings }]);
+      didShuffle = true;
+    }
   }
   return { valid: true, state: s, phases: ctx.phases, starsEarned: calculateStars(s.score, s.level.starThresholds), didShuffle };
 }
@@ -660,6 +664,8 @@ export function executeSwap(
     if (groups.length) {
       processMatchStep(ctx, groups, 1);
       settleBoard(ctx, 1);
+    } else if (free) {
+      settleBoard(ctx, 0);
     }
   }
   if (!free) spreadChocolate(ctx);
@@ -685,6 +691,7 @@ export function applyShuffleBooster(state: GameState, rng: () => number = Math.r
   if (state.status !== 'playing') return invalidResult(state);
   const ctx = createResolveContext(state, rng);
   const { grid, mappings } = shuffleBoard(ctx.s, rng);
+  if (findValidMoves(grid).length === 0) return invalidResult(state);
   ctx.s.grid = grid;
   pushPhase(ctx, 'shuffle', [{ type: 'shuffle', mappings }]);
   return { valid: true, state: ctx.s, phases: ctx.phases, starsEarned: calculateStars(ctx.s.score, ctx.s.level.starThresholds), didShuffle: true };

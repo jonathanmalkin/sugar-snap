@@ -179,6 +179,15 @@ export function GameScreen(props: GameScreenProps): ReactElement {
     setSnapshot(snapshotFrom(initialState));
     setActiveBooster(null);
 
+    let recordedWin: { score: number; stars: 1 | 2 | 3; record: LevelWinRecord } | null = null;
+    const ensureWinPersisted = (result: ControllerEnd): { score: number; stars: 1 | 2 | 3; record: LevelWinRecord } => {
+      if (recordedWin) return recordedWin;
+      const stars = Math.max(1, result.stars) as 1 | 2 | 3;
+      const record = latest.current.onLevelWon(level.id, result.score, stars);
+      recordedWin = { score: result.score, stars, record };
+      return recordedWin;
+    };
+
     const controller = new GameController({
       canvas,
       initialState,
@@ -195,14 +204,16 @@ export function GameScreen(props: GameScreenProps): ReactElement {
         if (booster !== 'shuffle') setActiveBooster(null);
         latest.current.onBoosterConsumed(booster);
       },
+      onLevelResolved: (result: ControllerEnd) => {
+        if (result.won) ensureWinPersisted(result);
+      },
       onLevelEnd: (result: ControllerEnd) => {
         if (endTimerRef.current !== null) window.clearTimeout(endTimerRef.current);
         const delay = displayRef.current.reducedMotion ? 150 : 450;
         if (result.won) {
-          const stars = Math.max(1, result.stars) as 1 | 2 | 3;
-          const record = latest.current.onLevelWon(level.id, result.score, stars);
+          const persisted = ensureWinPersisted(result);
           endTimerRef.current = window.setTimeout(() => {
-            setModal({ kind: 'won', score: result.score, stars, record });
+            setModal({ kind: 'won', score: persisted.score, stars: persisted.stars, record: persisted.record });
           }, delay);
         } else {
           endTimerRef.current = window.setTimeout(() => {
@@ -346,7 +357,7 @@ export function GameScreen(props: GameScreenProps): ReactElement {
         </div>
         {snapshot.status === 'sugar-crush' ? (
           <div className="sugar-crush-banner" role="status">
-            Sugar Crush!
+            Sugar Snap!
           </div>
         ) : null}
       </main>

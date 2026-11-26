@@ -414,7 +414,7 @@ export function computeObjectivesProgress(
   collectedIngredients: Record<string, number>,
 ): ObjectiveProgress[] {
   let jellyRemaining = 0;
-  for (const row of grid) for (const cell of row) if (cell.playable && cell.jelly > 0) jellyRemaining++;
+  for (const row of grid) for (const cell of row) if (cell.playable && cell.jelly > 0) jellyRemaining += cell.jelly;
   return level.objectives.map((obj) => {
     let current = 0;
     let completed = false;
