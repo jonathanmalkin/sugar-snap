@@ -322,7 +322,6 @@ export class BoardRenderer {
       lctx.restore();
     };
 
-    const trayTint = warmTrayTint(this.chapter?.trayTint || DEFAULT_TRAY);
     const top = oy - cs * 0.5;
     const bottom = oy + L.boardH + cs * 0.5;
     const left = ox - cs * 0.5;
@@ -357,120 +356,117 @@ export class BoardRenderer {
     sctx.drawImage(fade, 0, 0);
     octx.drawImage(shadow, 0, 0);
 
-    // 2. Caramel-gold bead rim: polished metal bands catching the studio light.
+    // 2. Option B2 sleek smooth brushed-gold outer rim.
     const rim = tinted(frameMask, (c) => {
-      // Polished caramel-gold, warmed only lightly by the chapter tint.
       const g = c.createLinearGradient(0, top, 0, bottom);
-      g.addColorStop(0, '#fff3c4');
-      g.addColorStop(0.06, '#ffd36e');
-      g.addColorStop(0.2, '#c2852a');
-      g.addColorStop(0.48, '#ffe09a');
-      g.addColorStop(0.76, '#c98d33');
-      g.addColorStop(1, '#7a4710');
+      g.addColorStop(0, '#fff7d4');
+      g.addColorStop(0.08, '#f3ca6e');
+      g.addColorStop(0.28, '#cf9435');
+      g.addColorStop(0.54, '#f7d889');
+      g.addColorStop(0.82, '#c88c2f');
+      g.addColorStop(1, '#996218');
       c.fillStyle = g;
       c.fillRect(0, 0, L.viewW, L.viewH);
-      c.globalCompositeOperation = 'multiply';
-      c.globalAlpha = 0.14;
-      c.fillStyle = trayTint;
-      c.fillRect(0, 0, L.viewW, L.viewH);
-      c.globalAlpha = 1;
-      c.globalCompositeOperation = 'source-over';
       const sw = c.createLinearGradient(left, top, right, bottom);
-      sw.addColorStop(0, 'rgba(255,255,255,0.45)');
-      sw.addColorStop(0.18, 'rgba(255,255,255,0)');
-      sw.addColorStop(0.62, 'rgba(255,255,255,0)');
-      sw.addColorStop(0.7, 'rgba(255,250,230,0.22)');
-      sw.addColorStop(0.78, 'rgba(255,255,255,0)');
+      sw.addColorStop(0, 'rgba(255,255,255,0.42)');
+      sw.addColorStop(0.22, 'rgba(255,255,255,0)');
+      sw.addColorStop(0.64, 'rgba(255,255,255,0)');
+      sw.addColorStop(0.73, 'rgba(255,250,232,0.24)');
+      sw.addColorStop(0.82, 'rgba(255,255,255,0)');
       c.fillStyle = sw;
       c.fillRect(0, 0, L.viewW, L.viewH);
     });
-    innerShade(rim, frameMask, 'rgba(255,250,228,0.95)', cs * 0.035, cs * 0.03);
-    innerShade(rim, frameMask, 'rgba(70,30,0,0.55)', cs * 0.06, -cs * 0.04);
+    innerShade(rim, frameMask, 'rgba(255,252,238,0.95)', cs * 0.032, cs * 0.025);
+    innerShade(rim, frameMask, 'rgba(115,62,8,0.45)', cs * 0.055, -cs * 0.035);
     octx.drawImage(rim, 0, 0);
 
-    // 3. Glazed caramel porcelain body inside the gold bead.
-    const bodyMask = unionMask(cs * (FRAME_EXPAND - 0.055), cs * 0.44);
+    // 3. Option B2 silky pearl-cream inner bevel cushion.
+    const bodyMask = unionMask(cs * (FRAME_EXPAND - 0.075), cs * 0.42);
     const body = tinted(bodyMask, (c) => {
-      c.fillStyle = trayTint;
-      c.fillRect(0, 0, L.viewW, L.viewH);
-      const glaze = c.createLinearGradient(0, top, 0, bottom);
-      glaze.addColorStop(0, 'rgba(255,244,222,0.62)');
-      glaze.addColorStop(0.12, 'rgba(255,226,180,0.18)');
-      glaze.addColorStop(0.6, 'rgba(120,55,15,0.06)');
-      glaze.addColorStop(1, 'rgba(70,25,5,0.4)');
-      c.fillStyle = glaze;
-      c.fillRect(0, 0, L.viewW, L.viewH);
-      // Softbox reflections gliding across the glaze.
-      c.globalCompositeOperation = 'screen';
-      const win = c.createLinearGradient(left, top, left + (right - left) * 0.55, top + (bottom - top) * 0.55);
-      win.addColorStop(0, 'rgba(255,255,255,0.5)');
-      win.addColorStop(0.28, 'rgba(255,255,255,0.08)');
-      win.addColorStop(0.36, 'rgba(255,255,255,0.3)');
-      win.addColorStop(0.44, 'rgba(255,255,255,0)');
-      c.fillStyle = win;
-      c.fillRect(0, 0, L.viewW, L.viewH);
-      c.globalCompositeOperation = 'source-over';
-    });
-    innerShade(body, bodyMask, 'rgba(255,240,215,0.9)', cs * 0.05, cs * 0.045);
-    innerShade(body, bodyMask, 'rgba(70,25,5,0.5)', cs * 0.1, -cs * 0.06);
-    octx.save();
-    octx.shadowColor = 'rgba(80,35,0,0.45)';
-    octx.shadowBlur = cs * 0.035 * dpr;
-    octx.shadowOffsetY = cs * 0.012 * dpr;
-    octx.drawImage(body, 0, 0);
-    octx.restore();
-
-    // 4. Frosted porcelain lip.
-    const lipMask = unionMask(cs * 0.17, cs * 0.34);
-    const lip = tinted(lipMask, (c) => {
       const g = c.createLinearGradient(0, top, 0, bottom);
-      g.addColorStop(0, '#fffaf4');
-      g.addColorStop(0.5, '#fbeee6');
-      g.addColorStop(1, '#ecd8d2');
+      g.addColorStop(0, '#fffefb');
+      g.addColorStop(0.42, '#faf2e8');
+      g.addColorStop(1, '#ebdcca');
       c.fillStyle = g;
       c.fillRect(0, 0, L.viewW, L.viewH);
-      const gl = c.createLinearGradient(0, top, 0, top + cs * 0.6);
-      gl.addColorStop(0, 'rgba(255,255,255,0.9)');
+      const gl = c.createLinearGradient(0, top, 0, top + cs * 0.7);
+      gl.addColorStop(0, 'rgba(255,255,255,0.88)');
       gl.addColorStop(1, 'rgba(255,255,255,0)');
       c.fillStyle = gl;
       c.fillRect(0, 0, L.viewW, L.viewH);
     });
-    innerShade(lip, lipMask, 'rgba(160,110,110,0.45)', cs * 0.06, cs * 0.04);
+    innerShade(body, bodyMask, 'rgba(255,255,255,0.95)', cs * 0.04, cs * 0.035);
+    innerShade(body, bodyMask, 'rgba(155,112,68,0.34)', cs * 0.075, -cs * 0.045);
     octx.save();
-    octx.shadowColor = 'rgba(90,30,10,0.35)';
-    octx.shadowBlur = cs * 0.08 * dpr;
-    octx.shadowOffsetY = cs * 0.03 * dpr;
-    octx.drawImage(lip, 0, 0);
+    octx.shadowColor = 'rgba(128,76,18,0.32)';
+    octx.shadowBlur = cs * 0.04 * dpr;
+    octx.shadowOffsetY = cs * 0.015 * dpr;
+    octx.drawImage(body, 0, 0);
     octx.restore();
 
-    // 5. Recessed frosted-glass wells with checkerboard.
-    const wellMask = unionMask(cs * 0.035, cs * 0.2);
-    const wells = tinted(wellMask, (c) => {
+    // 4. Crisp thin inner gold hairline separating pearl border from recessed tiles.
+    const lipMask = unionMask(cs * 0.085, cs * 0.26);
+    const lip = tinted(lipMask, (c) => {
       const g = c.createLinearGradient(0, oy, 0, oy + L.boardH);
-      // Warm, rich plum-berry wells: candy colours pop without going muddy.
-      g.addColorStop(0, 'rgba(92,42,96,0.8)');
-      g.addColorStop(1, 'rgba(64,24,66,0.86)');
+      g.addColorStop(0, '#d8a653');
+      g.addColorStop(0.5, '#f2d38a');
+      g.addColorStop(1, '#c38b34');
       c.fillStyle = g;
       c.fillRect(0, 0, L.viewW, L.viewH);
+    });
+    innerShade(lip, lipMask, 'rgba(90,52,14,0.32)', cs * 0.04, cs * 0.025);
+    octx.drawImage(lip, 0, 0);
+
+    // 5. Option A recessed pale ice-blue & cloud-white satin checkerboard tiles.
+    const wellMask = unionMask(cs * 0.04, cs * 0.2);
+    const wells = tinted(wellMask, (c) => {
+      // Soft icy sky-blue grout bed beneath individual satin tiles.
+      const bed = c.createLinearGradient(0, oy, 0, oy + L.boardH);
+      bed.addColorStop(0, '#bdd9f2');
+      bed.addColorStop(1, '#a7c8e8');
+      c.fillStyle = bed;
+      c.fillRect(0, 0, L.viewW, L.viewH);
+
       for (let r = 0; r < rows; r++) {
         for (let col = 0; col < cols; col++) {
           if (!playable(r, col)) continue;
-          const light = (r + col) % 2 === 0;
+          const isBlue = (r + col) % 2 === 0;
+          const tx = ox + col * cs + cs * 0.032;
+          const ty = oy + r * cs + cs * 0.032;
+          const tw = cs * 0.936;
+          const tr = cs * 0.175;
+
+          // Subtle recessed satin tile fill.
+          const tg = c.createLinearGradient(0, ty, 0, ty + tw);
+          if (isBlue) {
+            tg.addColorStop(0, '#daf0ff');
+            tg.addColorStop(0.55, '#c6e5fc');
+            tg.addColorStop(1, '#b5daf8');
+          } else {
+            tg.addColorStop(0, '#ffffff');
+            tg.addColorStop(0.6, '#f6faff');
+            tg.addColorStop(1, '#eaf3fc');
+          }
           c.beginPath();
-          roundRectPath(c, ox + col * cs + cs * 0.045, oy + r * cs + cs * 0.045, cs * 0.91, cs * 0.91, cs * 0.18);
-          c.fillStyle = light ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.06)';
+          roundRectPath(c, tx, ty, tw, tw, tr);
+          c.fillStyle = tg;
           c.fill();
-          const fg = c.createLinearGradient(0, oy + r * cs, 0, oy + (r + 1) * cs);
-          fg.addColorStop(0, 'rgba(255,255,255,0.07)');
-          fg.addColorStop(0.45, 'rgba(255,255,255,0)');
-          fg.addColorStop(1, 'rgba(255,214,200,0.07)');
-          c.fillStyle = fg;
-          c.fill();
+
+          // Soft top specular lip & delicate cool inner rim so every tile feels tactile.
+          c.strokeStyle = isBlue ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.92)';
+          c.lineWidth = Math.max(1, cs * 0.022);
+          c.stroke();
+
+          c.beginPath();
+          roundRectPath(c, tx + cs * 0.014, ty + cs * 0.014, tw - cs * 0.028, tw - cs * 0.028, Math.max(2, tr - cs * 0.014));
+          c.strokeStyle = isBlue ? 'rgba(116,162,212,0.28)' : 'rgba(154,186,218,0.22)';
+          c.lineWidth = Math.max(1, cs * 0.016);
+          c.stroke();
         }
       }
     });
-    innerShade(wells, wellMask, 'rgba(15,0,25,0.75)', cs * 0.16, cs * 0.07);
-    innerShade(wells, wellMask, 'rgba(255,220,255,0.3)', cs * 0.04, -cs * 0.03);
+    innerShade(wells, wellMask, 'rgba(65,104,148,0.38)', cs * 0.11, cs * 0.045);
+    innerShade(wells, wellMask, 'rgba(255,255,255,0.55)', cs * 0.035, -cs * 0.025);
     octx.drawImage(wells, 0, 0);
 
     return out;
@@ -663,11 +659,11 @@ export class BoardRenderer {
     const { cellSize: cs, originX: ox, originY: oy } = this.layout;
     const sprite = this.atlas.getCandy(v.candy);
     const cx = ox + (v.x + v.offsetX + 0.5) * cs;
-    // Sugar Bees hover: a soft bob and a little bank, as if their wings are buzzing.
-    const bee = v.candy.special === 'seeker' && !dying && !frame.reducedMotion;
-    const beePhase = frame.time * 4.2 + v.id * 1.3;
-    const bob = bee ? Math.sin(beePhase) * cs * 0.028 : 0;
-    const bank = bee ? Math.sin(beePhase * 0.5 + 0.8) * 0.05 : 0;
+    // Swedish Fish gently swim in place with a soft playful bob and tilt.
+    const fish = v.candy.special === 'seeker' && !dying && !frame.reducedMotion;
+    const fishPhase = frame.time * 3.8 + v.id * 1.3;
+    const bob = fish ? Math.sin(fishPhase) * cs * 0.024 : 0;
+    const bank = fish ? Math.sin(fishPhase * 0.6 + 0.8) * 0.045 : 0;
     const cy = oy + (v.y + v.offsetY + 0.5) * cs - v.lift * cs * 0.07 + bob;
     const s = v.pop * (1 + 0.07 * v.lift);
     const anchor = cs * 0.36; // squash pivots near the candy's base
@@ -677,13 +673,13 @@ export class BoardRenderer {
     if (v.rotation || bank) ctx.rotate(v.rotation + bank);
     ctx.scale(v.scaleX * s, v.scaleY * s);
     ctx.translate(0, -anchor);
-    if (v.lift > 0.05) {
-      // Floating contact shadow when lifted.
+    if (!dying) {
+      // Soft studio contact shadow grounding the candy onto the satin tile.
       ctx.save();
-      ctx.globalAlpha *= 0.35 * Math.min(1, v.lift);
-      ctx.fillStyle = 'rgba(30,5,30,1)';
+      ctx.globalAlpha *= v.lift > 0.05 ? 0.24 * Math.min(1, v.lift) + 0.12 : 0.14;
+      ctx.fillStyle = 'rgba(30, 58, 96, 1)';
       ctx.beginPath();
-      ctx.ellipse(0, cs * 0.36 + v.lift * cs * 0.06, cs * 0.3, cs * 0.08, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, cs * 0.36 + v.lift * cs * 0.06, cs * 0.31, cs * 0.075, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -715,17 +711,17 @@ export class BoardRenderer {
   private drawHalo(ctx: Ctx, p: GridPos, t: number): void {
     const { cellSize: cs, originX: ox, originY: oy } = this.layout;
     const pulse = 0.5 + 0.5 * Math.sin(t * 6);
-    const glow = this.atlas.getGlow('#fff1b8');
+    const glow = this.atlas.getGlow('#ffb703');
     ctx.save();
-    ctx.globalAlpha = 0.55 + 0.25 * pulse;
-    ctx.drawImage(glow, ox + (p.col - 0.3) * cs, oy + (p.row - 0.3) * cs, cs * 1.6, cs * 1.6);
+    ctx.globalAlpha = 0.38 + 0.2 * pulse;
+    ctx.drawImage(glow, ox + (p.col - 0.22) * cs, oy + (p.row - 0.22) * cs, cs * 1.44, cs * 1.44);
     ctx.globalAlpha = 1;
     ctx.beginPath();
-    roundRectPath(ctx, ox + p.col * cs + cs * 0.04, oy + p.row * cs + cs * 0.04, cs * 0.92, cs * 0.92, cs * 0.22);
-    ctx.lineWidth = cs * 0.05;
-    ctx.strokeStyle = `rgba(255,255,255,${0.65 + 0.3 * pulse})`;
-    ctx.shadowColor = 'rgba(255,215,120,0.9)';
-    ctx.shadowBlur = cs * 0.25 * this.layout.dpr;
+    roundRectPath(ctx, ox + p.col * cs + cs * 0.045, oy + p.row * cs + cs * 0.045, cs * 0.91, cs * 0.91, cs * 0.2);
+    ctx.lineWidth = cs * 0.058;
+    ctx.strokeStyle = `rgba(245, 166, 35, ${0.78 + 0.2 * pulse})`;
+    ctx.shadowColor = 'rgba(255, 194, 70, 0.85)';
+    ctx.shadowBlur = cs * 0.18 * this.layout.dpr;
     ctx.stroke();
     ctx.restore();
   }
@@ -758,33 +754,40 @@ export class BoardRenderer {
     const { cellSize: cs, originX: ox, originY: oy } = this.layout;
     const cx = ox + (c + 0.5) * cs;
     const base = oy + (r + 1) * cs;
-    // Warm glow pooling at the bottom of the exit cell.
-    const g = ctx.createLinearGradient(0, base - cs * 0.6, 0, base);
+    // Soft golden sheen along the exit lip.
+    const g = ctx.createLinearGradient(0, base - cs * 0.45, 0, base);
     g.addColorStop(0, 'rgba(255,214,110,0)');
-    g.addColorStop(1, 'rgba(255,214,110,0.35)');
+    g.addColorStop(1, 'rgba(255,204,78,0.28)');
     ctx.fillStyle = g;
-    ctx.fillRect(ox + c * cs + cs * 0.08, base - cs * 0.6, cs * 0.84, cs * 0.6);
+    ctx.fillRect(ox + c * cs + cs * 0.06, base - cs * 0.45, cs * 0.88, cs * 0.45);
+    const arrow = this.atlas.getExitArrow();
+    const bob = reduced ? 0 : Math.sin(t * 3.6) * cs * 0.025;
+    if (arrow) {
+      const sz = cs * 0.56;
+      ctx.save();
+      ctx.globalAlpha = 0.98;
+      ctx.shadowColor = 'rgba(110, 62, 8, 0.35)';
+      ctx.shadowBlur = cs * 0.08 * this.layout.dpr;
+      ctx.shadowOffsetY = cs * 0.02 * this.layout.dpr;
+      // Nestle prominently along the bottom pearl rim directly under the exit column.
+      ctx.drawImage(arrow, cx - sz / 2, base - sz * 0.2 + bob, sz, sz);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    for (let i = 0; i < 2; i++) {
-      const phase = reduced ? 0.5 : (t * 1.6 - i * 0.35) % 1;
-      const a = reduced ? 0.85 : 0.35 + 0.65 * Math.sin(Math.max(0, Math.min(1, phase)) * Math.PI);
-      const y = base + cs * (0.06 + i * 0.13);
-      ctx.beginPath();
-      ctx.moveTo(cx - cs * 0.16, y);
-      ctx.lineTo(cx, y + cs * 0.1);
-      ctx.lineTo(cx + cs * 0.16, y);
-      ctx.lineWidth = cs * 0.075;
-      ctx.strokeStyle = `rgba(122,58,0,${0.55 * a})`;
-      ctx.stroke();
-      ctx.lineWidth = cs * 0.045;
-      ctx.strokeStyle = `rgba(255,226,120,${a})`;
-      ctx.shadowColor = 'rgba(255,200,80,0.9)';
-      ctx.shadowBlur = cs * 0.15 * this.layout.dpr;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
+    const y = base + cs * 0.04 + bob;
+    ctx.beginPath();
+    ctx.moveTo(cx - cs * 0.16, y);
+    ctx.lineTo(cx, y + cs * 0.1);
+    ctx.lineTo(cx + cs * 0.16, y);
+    ctx.lineWidth = cs * 0.065;
+    ctx.strokeStyle = 'rgba(130,68,8,0.55)';
+    ctx.stroke();
+    ctx.lineWidth = cs * 0.04;
+    ctx.strokeStyle = '#ffd966';
+    ctx.stroke();
     ctx.restore();
   }
 

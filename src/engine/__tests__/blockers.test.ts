@@ -116,8 +116,8 @@ describe('licorice locks', () => {
   });
 });
 
-describe('chocolate', () => {
-  it('an adjacent match eats the chocolate and stops it spreading this turn', () => {
+describe('chocolate (static blocker)', () => {
+  it('an adjacent match clears the chocolate block cleanly', () => {
     const s = stateOf(['r g r X', 'b r g y', 'g b y o', 'p o p X']);
     const res = executeSwap(s, p(0, 1), p(1, 1), { rng: rng() });
     expect(res.phases[1].gridAfter[0][3].chocolate).toBe(false);
@@ -126,25 +126,12 @@ describe('chocolate', () => {
     expect(res.state.grid[3][3].chocolate).toBe(true);
   });
 
-  it('spreads onto one adjacent candy when none was cleared', () => {
+  it('stays static and never spreads even when no chocolate is cleared', () => {
     const s = stateOf(['r g r y', 'b r g y', 'g b y o', 'p o p X']);
     const res = executeSwap(s, p(0, 1), p(1, 1), { rng: rng() });
-    const choc = res.phases.filter((ph) => ph.kind === 'chocolate');
-    expect(choc).toHaveLength(1);
-    const [spread] = eventsOf(choc[0], 'chocolate-spread');
-    expect(spread.from).toEqual(p(3, 3));
-    expect([
-      [2, 3],
-      [3, 2],
-    ]).toContainEqual([spread.to.row, spread.to.col]);
-    expect(res.state.grid.flat().filter((c) => c.chocolate)).toHaveLength(2);
-    expect(res.state.grid[spread.to.row][spread.to.col].candy).toBeNull();
-  });
-
-  it('never spreads onto specials, locked candies or ingredients', () => {
-    const s = stateOf(['r g r y', 'b r g rh', 'g b y o:L', 'p o I X']);
-    const res = executeSwap(s, p(0, 1), p(1, 1), { rng: rng() });
     expect(res.phases.some((ph) => ph.kind === 'chocolate')).toBe(false);
+    expect(res.state.grid.flat().filter((c) => c.chocolate)).toHaveLength(1);
+    expect(res.state.grid[3][3].chocolate).toBe(true);
   });
 
   it('is destroyed by a laser', () => {

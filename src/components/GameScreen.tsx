@@ -379,11 +379,14 @@ export function GameScreen(props: GameScreenProps): ReactElement {
     ? { bestScore: save.zenBestScore, bestCascade: Math.max(save.zenBestCascade, zenCascade) }
     : undefined;
 
+  const baseUrl = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
+  const candylandUrl = `${baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`}art/bg-candyland.jpg`;
   const themeStyle = {
     '--ch-accent': chapter.accentColor,
     '--ch-from': chapter.bgFrom,
     '--ch-to': chapter.bgTo,
     '--ch-tray': chapter.trayTint,
+    '--bg-candyland': `url("${candylandUrl}")`,
   } as CSSProperties;
 
   return (

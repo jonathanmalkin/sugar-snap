@@ -17,7 +17,7 @@ export const CHAPTERS: ChapterDef[] = [
     levelIds: [11, 12, 13, 14, 15],
   },
   {
-    id: 4, name: 'Berry Orchard', tagline: 'Cherries and hazelnuts ripe for the picking',
+    id: 4, name: 'Donut Orchard', tagline: 'Frosted donuts gliding to the exits',
     accentColor: '#813a68', bgFrom: '#ffdcbd', bgTo: '#cc9bc5', trayTint: '#59334f',
     levelIds: [16, 17, 18, 19, 20],
   },

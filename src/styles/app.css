@@ -1264,32 +1264,23 @@ svg {
   gap: 10px;
   padding: calc(var(--safe-t) + 10px) calc(var(--safe-r) + 14px) calc(var(--safe-b) + 12px) calc(var(--safe-l) + 14px);
   background:
-    radial-gradient(ellipse 55% 40% at 78% 4%, rgba(255, 251, 226, 0.9), rgba(255, 251, 226, 0) 70%),
-    radial-gradient(ellipse 70% 50% at 50% 52%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 70%),
-    linear-gradient(180deg, var(--ch-from) 0%, var(--ch-to) 100%);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--ch-from) 24%, transparent) 0%,
+      color-mix(in srgb, var(--ch-to) 18%, transparent) 100%
+    ),
+    var(--bg-candyland, linear-gradient(180deg, var(--ch-from) 0%, var(--ch-to) 100%)) center / cover no-repeat;
   overscroll-behavior: none;
 }
 
-/* Painted chapter hills rolling across the bottom of the world. */
+/* Soft chapter lighting wash over the painted Candyland hills. */
 .game-screen::before {
   content: '';
   position: absolute;
   z-index: -1;
-  left: -2%;
-  right: -2%;
-  bottom: 0;
-  height: 48%;
+  inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 30%), var(--ch-to);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--ch-to) 70%, #fff) 0%, color-mix(in srgb, var(--ch-to) 78%, var(--ch-accent)) 100%);
-  -webkit-mask-image: var(--hills-mask);
-  mask-image: var(--hills-mask);
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  opacity: 0.9;
+  background: radial-gradient(ellipse 68% 62% at 55% 48%, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 74%);
 }
 
 /* Floating sugar bokeh. */

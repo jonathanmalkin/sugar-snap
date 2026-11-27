@@ -26,7 +26,7 @@ const specialOrder = (special: SpecialType, label: string, target: number): Obje
 })
 const ingredients = (ingredient: IngredientType, target: number): ObjectiveTarget => ({
   id: ingredient, kind: 'ingredients', ingredient, target,
-  label: ingredient === 'cherry' ? 'Cherries' : 'Hazelnuts',
+  label: target === 1 ? 'Donut' : 'Donuts',
 })
 const spawn = (type: IngredientType, count: number, spawnCols: number[]): IngredientSpawnRule => ({
   type, count, spawnCols, maxOnBoard: 1,
@@ -97,49 +97,49 @@ export const LEVELS: LevelDef[] = [
       '..jjjj.',
       '...jj..',
       '.......',
-    ], { tutorialHint: 'Clear the candy on a jelly tile to take off a layer. Double jelly takes two clears.' }),
+    ], { tutorialHint: 'Match a candy sitting on a pink jelly tile to clear the glaze underneath.' }),
   level(7, 'Glazed Diamond', 'A berry at each point', 4, 24, [1500, 3600, 6900],
-    [jelly(21)], [
+    [jelly(16)], [
       '##...##',
       '#..j..#',
-      '..jJj..',
-      '.jJJJj.',
-      '..jJj..',
+      '..jjj..',
+      '.jjjjj.',
+      '..jjj..',
       '#.jjj.#',
       '##.j.##',
     ]),
   level(8, 'Mint Bridge', 'Across the berry brook', 4, 25, [1800, 4100, 7600],
-    [jelly(28)], [
+    [jelly(21)], [
       '...###...',
       '.j.###.j.',
-      '.J.###.J.',
-      '.jjJJJjj.',
-      '.J.###.J.',
+      '.j.###.j.',
+      '.jjjjjjj.',
+      '.j.###.j.',
       '.j.###.j.',
       'jj.###.jj',
       '.j.###.j.',
     ]),
   level(9, 'Twin Islands', 'Two banks of berry glaze', 4, 26, [2000, 4500, 8200],
-    [jelly(28)], [
+    [jelly(20)], [
       '....#....',
       '.jj.#.jj.',
-      '.JJ.#.JJ.',
       '.jj.#.jj.',
-      '..J.#.J..',
-      '.jJ.#.Jj.',
+      '.jj.#.jj.',
+      '..j.#.j..',
+      '.jj.#.jj.',
       '....#....',
       '.j..#..j.',
     ]),
   level(10, 'Glasshouse', 'A glazed frame around the courtyard', 4, 28, [2400, 5000, 9000],
-    [jelly(32)], [
+    [jelly(22)], [
       '..jjjj..',
-      '.J....J.',
+      '.j....j.',
       'j..##..j',
       'j..##..j',
-      'J..##..J',
       'j..##..j',
-      '.J....J.',
-      '.jJJJJj.',
+      'j..##..j',
+      '.j....j.',
+      '.jjjjjj.',
     ]),
 
   // Frosting Peaks
@@ -200,8 +200,8 @@ export const LEVELS: LevelDef[] = [
       '.........',
     ]),
 
-  // Berry Orchard
-  level(16, 'Cherry Chute', 'The first ripe cherry', 4, 22, [1300, 3400, 6500],
+  // Donut Orchard
+  level(16, 'Donut Chute', 'The first frosted donut', 4, 22, [1300, 3400, 6500],
     [ingredients('cherry', 1)], [
       '.......',
       '.......',
@@ -211,9 +211,9 @@ export const LEVELS: LevelDef[] = [
       '.......',
       '...E...',
     ], { ingredientSpawns: [spawn('cherry', 1, [3])],
-      tutorialHint: 'Clear candies below an ingredient to drop it to a marked exit.' }),
-  level(17, 'Hazelnut Hollow', 'Two paths to the baskets', 4, 24, [1600, 4000, 7500],
-    [ingredients('hazelnut', 2)], [
+      tutorialHint: 'Clear candies below a frosted donut to guide it down to a golden exit arrow.' }),
+  level(17, 'Frosted Hollow', 'Two paths to the baskets', 4, 24, [1600, 4000, 7500],
+    [ingredients('cherry', 2)], [
       '........',
       '........',
       '...LL...',
@@ -222,10 +222,10 @@ export const LEVELS: LevelDef[] = [
       '...L....',
       '........',
       '..E..E..',
-    ], { ingredientSpawns: [spawn('hazelnut', 2, [2, 5])],
-      tutorialHint: 'Match a licorice-locked candy in place to break its lock.' }),
-  level(18, 'Paired Baskets', 'Cherries and hazelnuts together', 4, 26, [1800, 4300, 8000],
-    [ingredients('cherry', 1), ingredients('hazelnut', 1)], [
+    ], { ingredientSpawns: [spawn('cherry', 2, [2, 5])],
+      tutorialHint: 'Match an icing-locked candy in place to break its frosted lock.' }),
+  level(18, 'Paired Baskets', 'Two donuts side by side', 4, 26, [1800, 4300, 8000],
+    [ingredients('cherry', 2)], [
       '.........',
       '.........',
       '..L...L..',
@@ -235,7 +235,7 @@ export const LEVELS: LevelDef[] = [
       '....L....',
       '.........',
       '..E...E..',
-    ], { ingredientSpawns: [spawn('cherry', 1, [2]), spawn('hazelnut', 1, [6])] }),
+    ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
   level(19, 'Orchard Glaze', 'A jelly lining in the baskets', 4, 28, [2000, 4700, 8600],
     [ingredients('cherry', 2), jelly(14)], [
       '.........',
@@ -248,8 +248,8 @@ export const LEVELS: LevelDef[] = [
       '....j....',
       '..e...e..',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
-  level(20, 'Harvest Gate', 'Three treats through licorice', 4, 30, [2400, 5300, 9600],
-    [ingredients('cherry', 2), ingredients('hazelnut', 1), colorOrder('orange', 24)], [
+  level(20, 'Harvest Gate', 'Three donuts through the icing', 4, 30, [2400, 5300, 9600],
+    [ingredients('cherry', 3), colorOrder('orange', 24)], [
       '.........',
       '.........',
       '..L.L.L..',
@@ -259,10 +259,10 @@ export const LEVELS: LevelDef[] = [
       '.L..L..L.',
       '.........',
       '..E.E.E..',
-    ], { ingredientSpawns: [spawn('cherry', 2, [2, 6]), spawn('hazelnut', 1, [4])] }),
+    ], { ingredientSpawns: [spawn('cherry', 3, [2, 4, 6])] }),
 
   // Truffle Palace
-  level(21, 'Cocoa Foyer', 'A quiet corner of chocolate', 4, 22, [1500, 3700, 7000],
+  level(21, 'Cocoa Foyer', 'A quiet corner of dark chocolate', 4, 22, [1500, 3700, 7000],
     [colorOrder('red', 24), score(1500)], [
       '........',
       '........',
@@ -272,15 +272,15 @@ export const LEVELS: LevelDef[] = [
       '.C......',
       '.C......',
       '........',
-    ], { tutorialHint: 'Chocolate spreads on turns when you clear none. Match beside it or hit it with a special candy.' }),
+    ], { tutorialHint: 'Match beside a dark chocolate block or hit it with a special candy to break through.' }),
   level(22, 'Ganache Gallery', 'Berry glaze between cocoa walls', 4, 27, [2000, 4800, 8600],
-    [jelly(23)], [
+    [jelly(20)], [
       '.........',
       '.........',
       '...jjj...',
-      '.C.jJj.C.',
-      '.C.jJj.C.',
-      '...jJj...',
+      '.C.jjj.C.',
+      '.C.jjj.C.',
+      '...jjj...',
       '..jjjjj..',
       '...jjj...',
     ]),
@@ -296,30 +296,30 @@ export const LEVELS: LevelDef[] = [
       '....L....',
       '.........',
     ]),
-  level(24, 'Crowned Cherry', 'A cherry through the truffle hall', 4, 30, [2600, 5900, 10400],
-    [ingredients('cherry', 2), jelly(21)], [
+  level(24, 'Crowned Donut', 'Donuts through the truffle hall', 4, 30, [2600, 5900, 10400],
+    [ingredients('cherry', 2), jelly(17)], [
       '.........',
       '.........',
       '...1.1...',
       '.C.jjj.C.',
-      '.C.jJj.C.',
+      '.C.jjj.C.',
       '..j.L.j..',
-      '..jJJJj..',
+      '..jjjjj..',
       '...j.j...',
       '..e...e..',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
   level(25, 'The Gilded Truffle', 'The chocolatier’s final course', 4, 32, [3000, 6800, 12000],
-    [jelly(30), ingredients('hazelnut', 2), colorOrder('red', 34)], [
+    [jelly(23), ingredients('cherry', 2), colorOrder('red', 34)], [
       '.........',
       '.........',
       '..j111j..',
       '.C.jjj.C.',
-      '..jJLJj..',
-      '.C.jJj.C.',
-      '..jJjJj..',
-      '.jJ...Jj.',
+      '..jjLjj..',
+      '.C.jjj.C.',
+      '..jjjjj..',
+      '.jj...jj.',
       '..e...e..',
-    ], { ingredientSpawns: [spawn('hazelnut', 2, [2, 6])] }),
+    ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
 ]
 
 export function getLevelById(id: number): LevelDef {

@@ -1,5 +1,6 @@
 import { useId, type CSSProperties, type ReactElement } from 'react';
 import type { BoosterType, CandyColor, ObjectiveTarget } from '../engine/types';
+import { getSpriteUrl } from '../renderer/candySprites';
 
 /**
  * Crisp inline SVG icon set for Sugar Snap.
@@ -134,8 +135,50 @@ const PILLOW_D =
 
 /* ---------- component ---------- */
 
+function spriteFilenameFor(kind: IconKind, tint?: CandyColor): string | null {
+  switch (kind) {
+    case 'red':
+    case 'orange':
+    case 'yellow':
+    case 'green':
+    case 'blue':
+    case 'purple':
+      return `candy-${kind}.png`;
+    case 'jelly':
+      return 'jelly-1.png';
+    case 'cherry':
+    case 'hazelnut':
+      return 'donut.png';
+    case 'striped':
+      return `striped-h-${tint ?? 'orange'}.png`;
+    case 'wrapped':
+      return `wrapped-${tint ?? 'purple'}.png`;
+    case 'color-bomb':
+      return 'color-bomb.png';
+    case 'seeker':
+      return `fish-${tint ?? 'yellow'}.png`;
+    default:
+      return null;
+  }
+}
+
 export function CandyIcon({ kind, size = 28, tint, className, style, title }: CandyIconProps): ReactElement {
   const rawId = useId();
+  const spriteFile = spriteFilenameFor(kind, tint);
+  if (spriteFile) {
+    return (
+      <img
+        src={getSpriteUrl(spriteFile)}
+        alt={title ?? ''}
+        aria-hidden={title ? undefined : true}
+        width={size}
+        height={size}
+        draggable={false}
+        className={className ? `candy-icon candy-icon--img ${className}` : 'candy-icon candy-icon--img'}
+        style={{ width: size, height: size, objectFit: 'contain', ...style }}
+      />
+    );
+  }
   const id = `ci${rawId.replace(/[^a-zA-Z0-9]/g, '')}`;
   const body = renderBody(kind, id, tint);
   return (

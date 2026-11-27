@@ -276,8 +276,101 @@ function pixelsToCanvas(pixels: Uint8ClampedArray, S: number): HTMLCanvasElement
 
 const ALL_COLORS: readonly CandyColor[] = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];
 
+/** Maps internal atlas keys to pre-rendered studio-3D transparent PNGs in public/sprites/. */
+const SPRITE_FILES: Record<string, string> = {
+  'red:none': 'candy-red.png',
+  'orange:none': 'candy-orange.png',
+  'yellow:none': 'candy-yellow.png',
+  'green:none': 'candy-green.png',
+  'blue:none': 'candy-blue.png',
+  'purple:none': 'candy-purple.png',
+  'red:striped-h': 'striped-h-red.png',
+  'orange:striped-h': 'striped-h-orange.png',
+  'yellow:striped-h': 'striped-h-yellow.png',
+  'green:striped-h': 'striped-h-green.png',
+  'blue:striped-h': 'striped-h-blue.png',
+  'purple:striped-h': 'striped-h-purple.png',
+  'red:striped-v': 'striped-v-red.png',
+  'orange:striped-v': 'striped-v-orange.png',
+  'yellow:striped-v': 'striped-v-yellow.png',
+  'green:striped-v': 'striped-v-green.png',
+  'blue:striped-v': 'striped-v-blue.png',
+  'purple:striped-v': 'striped-v-purple.png',
+  'red:wrapped': 'wrapped-red.png',
+  'orange:wrapped': 'wrapped-orange.png',
+  'yellow:wrapped': 'wrapped-yellow.png',
+  'green:wrapped': 'wrapped-green.png',
+  'blue:wrapped': 'wrapped-blue.png',
+  'purple:wrapped': 'wrapped-purple.png',
+  'red:seeker': 'fish-red.png',
+  'orange:seeker': 'fish-orange.png',
+  'yellow:seeker': 'fish-yellow.png',
+  'green:seeker': 'fish-green.png',
+  'blue:seeker': 'fish-blue.png',
+  'purple:seeker': 'fish-purple.png',
+  bomb: 'color-bomb.png',
+  'ing:cherry': 'donut.png',
+  'ing:hazelnut': 'donut.png',
+  'blk:frosting-1': 'frosting-1.png',
+  'blk:frosting-2': 'frosting-2.png',
+  'blk:frosting-3': 'frosting-3.png',
+  'blk:chocolate': 'chocolate.png',
+  'blk:locked': 'lock-overlay.png',
+  'jelly:1': 'jelly-1.png',
+  'jelly:2': 'jelly-1.png',
+  'exit-arrow': 'exit-arrow.png',
+};
+
+const UNIQUE_SPRITE_FILENAMES: readonly string[] = Array.from(new Set(Object.values(SPRITE_FILES)));
+
+export function getSpriteUrl(filename: string): string {
+  const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
+  return `${base.endsWith('/') ? base : `${base}/`}sprites/${filename}`;
+}
+
+interface ImageEntry {
+  img: HTMLImageElement;
+  loaded: boolean;
+  failed: boolean;
+}
+
+const imageRegistry = new Map<string, ImageEntry>();
+const spriteLoadListeners = new Set<(filename: string) => void>();
+
+function ensureImage(filename: string): ImageEntry | null {
+  if (typeof Image === 'undefined') return null;
+  let entry = imageRegistry.get(filename);
+  if (entry) return entry;
+  const img = new Image();
+  img.decoding = 'async';
+  entry = { img, loaded: false, failed: false };
+  imageRegistry.set(filename, entry);
+  img.onload = () => {
+    entry!.loaded = true;
+    for (const cb of spriteLoadListeners) cb(filename);
+  };
+  img.onerror = () => {
+    entry!.failed = true;
+  };
+  img.src = getSpriteUrl(filename);
+  if (img.complete && img.naturalWidth > 0) entry.loaded = true;
+  return entry;
+}
+
+export function getLoadedSpriteImage(filename: string): HTMLImageElement | null {
+  const entry = ensureImage(filename);
+  if (entry && entry.loaded && entry.img.naturalWidth > 0) return entry.img;
+  return null;
+}
+
+export function preloadAllSpriteImages(): void {
+  if (typeof Image === 'undefined') return;
+  for (const fn of UNIQUE_SPRITE_FILENAMES) ensureImage(fn);
+}
+
 export class CandySpriteAtlas {
   private cache = new Map<string, HTMLCanvasElement>();
+  private fromPng = new Set<string>();
   private sheens = new Map<string, HTMLCanvasElement | null>();
   private queue: Array<[string, PbrSpriteSpec]> = [];
   private px = 0;
@@ -285,8 +378,20 @@ export class CandySpriteAtlas {
   private cell = 0;
   private bakeMs = 0;
   private colors: readonly CandyColor[] = ALL_COLORS;
+  private readonly onImgLoad: (filename: string) => void;
 
   constructor(cellSize = 64, dpr = 1) {
+    this.onImgLoad = (filename: string) => {
+      // Upgrade any fallback sprite cached before this PNG finished decoding.
+      for (const [key, fn] of Object.entries(SPRITE_FILES)) {
+        if (fn === filename && !this.fromPng.has(key)) {
+          this.cache.delete(key);
+          this.sheens.delete(key);
+        }
+      }
+    };
+    spriteLoadListeners.add(this.onImgLoad);
+    preloadAllSpriteImages();
     this.ensure(cellSize, dpr);
   }
 
@@ -328,10 +433,12 @@ export class CandySpriteAtlas {
 
   clear(): void {
     this.flush();
+    spriteLoadListeners.delete(this.onImgLoad);
   }
 
   private flush(): void {
     this.cache.clear();
+    this.fromPng.clear();
     this.sheens.clear();
     this.queue.length = 0;
     this.bakeMs = 0;
@@ -339,11 +446,11 @@ export class CandySpriteAtlas {
   }
 
   /**
-   * Bakes the level's plain candies now (the first frame needs them) and queues
-   * every special, ingredient, blocker and jelly sprite for bakeIdle().
+   * Starts parallel PNG decoding for all studio-3D sprites and warms colorblind badges.
    */
   prewarm(colors: readonly CandyColor[] = ALL_COLORS): void {
     this.colors = colors.length ? colors : ALL_COLORS;
+    preloadAllSpriteImages();
     for (const color of this.colors) {
       this.getCandy({ id: -1, color, special: 'none' });
       this.getColorblindBadge(color);
@@ -353,29 +460,31 @@ export class CandySpriteAtlas {
 
   private enqueueAll(colors: readonly CandyColor[]): void {
     const add = (key: string, spec: PbrSpriteSpec) => {
+      if (this.fromPng.has(key)) return;
+      const fn = SPRITE_FILES[key];
+      if (fn && getLoadedSpriteImage(fn)) {
+        this.bakeFromPng(key, getLoadedSpriteImage(fn)!);
+        return;
+      }
       if (!this.cache.has(key) && !this.queue.some((q) => q[0] === key)) this.queue.push([key, spec]);
     };
     for (const color of colors) add(`${color}:none`, { kind: 'candy', color, special: 'none' });
     add('jelly:1', { kind: 'jelly', layers: 1 });
-    add('jelly:2', { kind: 'jelly', layers: 2 });
     add('blk:frosting-1', blockerSpec('frosting-1'));
     add('blk:frosting-2', blockerSpec('frosting-2'));
     add('blk:frosting-3', blockerSpec('frosting-3'));
     add('blk:chocolate', blockerSpec('chocolate'));
     add('blk:locked', blockerSpec('locked'));
     add('ing:cherry', { kind: 'cherry' });
-    add('ing:hazelnut', { kind: 'hazelnut' });
     for (const color of colors) {
       for (const special of ['striped-h', 'striped-v', 'wrapped'] as const) add(`${color}:${special}`, { kind: 'candy', color, special });
     }
     add('bomb', { kind: 'bomb' });
-    // Sugar Bees last: they are the rarest special, so they never delay the common sprites.
     for (const color of colors) add(`${color}:seeker`, { kind: 'candy', color, special: 'seeker' });
   }
 
   /**
-   * Bakes queued sprites until about budgetMs has passed (always at least one).
-   * Returns true while more remain. Call once per frame.
+   * Drains queued fallback bakes if PNGs have not yet loaded.
    */
   bakeIdle(budgetMs = 4): boolean {
     if (this.queue.length === 0) return false;
@@ -394,9 +503,10 @@ export class CandySpriteAtlas {
     return this.bakePbr(candySpriteKey(candy), candySpec(candy));
   }
 
-  /** Additive glint layer for a candy (null for sprites without one). */
+  /** Additive glint layer for a candy (null for studio-3D PNG sprites which carry real baked highlights). */
   getCandySheen(candy: Candy): HTMLCanvasElement | null {
     const key = candySpriteKey(candy);
+    if (this.fromPng.has(key)) return null;
     if (!this.sheens.has(key)) this.getCandy(candy);
     return this.sheens.get(key) ?? null;
   }
@@ -414,7 +524,15 @@ export class CandySpriteAtlas {
   }
 
   getJelly(layers: 1 | 2): HTMLCanvasElement {
-    return this.bakePbr(`jelly:${layers}`, { kind: 'jelly', layers });
+    return this.bakePbr(`jelly:${layers}`, { kind: 'jelly', layers: 1 });
+  }
+
+  getExitArrow(): HTMLCanvasElement | null {
+    const hit = this.cache.get('exit-arrow');
+    if (hit && this.fromPng.has('exit-arrow')) return hit;
+    const img = getLoadedSpriteImage('exit-arrow.png');
+    if (!img) return null;
+    return this.bakeFromPng('exit-arrow', img);
   }
 
   getColorblindBadge(color: CandyColor): HTMLCanvasElement {
@@ -426,7 +544,30 @@ export class CandySpriteAtlas {
     return this.bake(`glow:${color}`, (ctx, S) => drawGlow(ctx, S, color));
   }
 
+  private bakeFromPng(key: string, img: HTMLImageElement): HTMLCanvasElement {
+    const [canvas, ctx] = makeCanvas(this.px);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    // Slightly oversize blockers/jelly/locks so tiles sit flush; candies keep natural padding.
+    const fullBleed = key.startsWith('jelly:') || key === 'blk:locked' || key.startsWith('blk:frosting-') || key === 'blk:chocolate';
+    const inset = fullBleed ? this.px * 0.015 : 0;
+    ctx.drawImage(img, inset, inset, this.px - inset * 2, this.px - inset * 2);
+    this.cache.set(key, canvas);
+    this.fromPng.add(key);
+    this.sheens.set(key, null);
+    return canvas;
+  }
+
   private bakePbr(key: string, spec: PbrSpriteSpec): HTMLCanvasElement {
+    const fn = SPRITE_FILES[key];
+    if (fn) {
+      const img = getLoadedSpriteImage(fn);
+      if (img) {
+        const hit = this.cache.get(key);
+        if (hit && this.fromPng.has(key)) return hit;
+        return this.bakeFromPng(key, img);
+      }
+    }
     const hit = this.cache.get(key);
     if (hit) return hit;
     const t0 = now();

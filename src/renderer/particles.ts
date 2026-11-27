@@ -4,7 +4,16 @@
  * All coordinates are CSS pixels in canvas space. Call update(dt) once per
  * frame and draw(ctx, viewW, viewH) after the board has been painted.
  */
-import { makeCanvas, withAlpha } from './candySprites';
+import { CANDY_PALETTES, getLoadedSpriteImage, makeCanvas, withAlpha } from './candySprites';
+import type { CandyColor } from '../engine/types';
+
+function candyColorFromHex(hex: string): CandyColor {
+  const lower = hex.toLowerCase();
+  for (const color of ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const) {
+    if (CANDY_PALETTES[color].particle.toLowerCase() === lower) return color;
+  }
+  return 'yellow';
+}
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -1020,14 +1029,14 @@ export class ParticleSystem {
     });
   }
 
-  /** Draws one flying bee (trail is drawn separately, under the particles). */
+  /** Draws one flying Swedish Fish homing seeker (trail is drawn separately, under the particles). */
   private drawBee(ctx: Ctx, b: BeeFlight): void {
     const fade = b.arrived ? Math.max(0, 1 - b.linger / 0.12) : 1;
     if (fade <= 0) return;
     const s = b.size;
     const stretch = this.reducedMotion ? 1 : Math.min(1.22, 1 + b.speed / (s * 40));
     const arrivePop = b.arrived ? 1 + b.linger * 3 : 1;
-    // Glow halo behind the bee (bigger when carrying a special payload).
+    // Glow halo behind the fish (bigger when carrying a special payload).
     const halo = s * (b.payload === 'none' ? 1.25 : 1.7);
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.6 * fade;
@@ -1042,26 +1051,20 @@ export class ParticleSystem {
     ctx.save();
     ctx.translate(b.x, b.y);
     ctx.rotate(b.heading);
-    // Keep the bee upright whichever way it flies.
+    // Keep the fish upright whichever way it swims.
     if (Math.cos(b.heading) < 0) ctx.scale(1, -1);
+    const wag = this.reducedMotion ? 0 : Math.sin(b.wing * 0.65) * 0.08;
+    ctx.rotate(wag);
     ctx.scale(stretch * arrivePop, arrivePop / stretch);
-    const bw = s * 0.9;
-    // Back wing, body, front wing: fluttering by squashing each wing's height.
-    const flap = Math.sin(b.wing);
-    const wing = this.wingSprite();
-    const drawWing = (ang: number, sy: number, alpha: number) => {
-      ctx.save();
-      ctx.translate(-bw * 0.02, -bw * 0.16);
-      ctx.rotate(ang);
-      ctx.scale(1, Math.max(0.12, sy));
-      ctx.globalAlpha = fade * alpha;
-      ctx.drawImage(wing, 0, -bw * 0.2, bw * 0.62, bw * 0.4);
-      ctx.restore();
-    };
-    drawWing(-2.2 + flap * 0.25, 0.35 + 0.65 * Math.abs(Math.cos(b.wing + 0.6)), 0.75);
-    ctx.globalAlpha = fade;
-    ctx.drawImage(this.beeSprite(b.color), -bw / 2, -bw / 2, bw, bw);
-    drawWing(-1.75 - flap * 0.3, 0.3 + 0.7 * Math.abs(flap), 0.9);
+    const fw = s * 1.05;
+    const fishImg = getLoadedSpriteImage(`fish-${candyColorFromHex(b.color)}.png`);
+    if (fishImg) {
+      // fish-*.png faces ~22 deg up-right; rotate +0.38 rad so nose aligns directly with heading.
+      ctx.rotate(0.38);
+      ctx.drawImage(fishImg, -fw / 2, -fw / 2, fw, fw);
+    } else {
+      ctx.drawImage(this.beeSprite(b.color), -fw / 2, -fw / 2, fw, fw);
+    }
     ctx.restore();
     ctx.globalAlpha = 1;
   }

@@ -702,27 +702,6 @@ export function settleBoard(ctx: ResolveContext, startCascade: number): number {
   return cascade;
 }
 
-function spreadChocolate(ctx: ResolveContext): void {
-  const s = ctx.s;
-  if (s.chocolateClearedThisTurn) return;
-  const options: Array<{ from: GridPos; to: GridPos }> = [];
-  for (const row of s.grid)
-    for (const cell of row) {
-      if (!cell.playable || !cell.chocolate) continue;
-      for (const [dr, dc] of ORTHO) {
-        const n = getCell(s.grid, { row: cell.row + dr, col: cell.col + dc });
-        if (!n || !canHoldCandy(n) || n.locked || !n.candy || n.candy.special !== 'none' || n.candy.ingredient) continue;
-        options.push({ from: { row: cell.row, col: cell.col }, to: { row: n.row, col: n.col } });
-      }
-    }
-  if (!options.length) return;
-  const pick = options[Math.min(options.length - 1, Math.floor(ctx.rng() * options.length))];
-  const target = getCell(s.grid, pick.to)!;
-  target.candy = null;
-  target.chocolate = true;
-  pushPhase(ctx, 'chocolate', [{ type: 'chocolate-spread', from: pick.from, to: pick.to }]);
-}
-
 /** Objectives, win/lose and deadlock handling at the end of a player action. */
 export function finishTurn(ctx: ResolveContext): StepResult {
   const s = ctx.s;
@@ -808,7 +787,6 @@ export function executeSwap(
       settleBoard(ctx, 0);
     }
   }
-  if (!free) spreadChocolate(ctx);
   return finishTurn(ctx);
 }
 
