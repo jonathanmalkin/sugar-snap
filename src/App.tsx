@@ -111,7 +111,7 @@ export function App(): ReactElement {
 
   /** Map picks show the Intro sheet; Victory's Next Level passes `false` to flow straight in. */
   const playLevel = useCallback((levelId: number, showIntro = true) => {
-    const target = Math.max(1, Math.min(levelId, saveRef.current.highestUnlockedLevel, MAX_LEVEL));
+    const target = Math.max(1, Math.min(levelId, MAX_LEVEL));
     setScreen({ name: 'play', levelId: target, showIntro });
   }, []);
 

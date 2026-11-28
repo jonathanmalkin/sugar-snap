@@ -761,16 +761,16 @@ export class BoardRenderer {
     ctx.fillStyle = g;
     ctx.fillRect(ox + c * cs + cs * 0.06, base - cs * 0.45, cs * 0.88, cs * 0.45);
     const arrow = this.atlas.getExitArrow();
-    const bob = reduced ? 0 : Math.sin(t * 3.6) * cs * 0.025;
+    const bob = reduced ? 0 : Math.sin(t * 3.6) * cs * 0.018;
     if (arrow) {
-      const sz = cs * 0.56;
+      // Center the chevron squarely inside the pearl-cream bottom rim (base + 0.17*cs).
+      const sz = cs * 0.44;
       ctx.save();
       ctx.globalAlpha = 0.98;
       ctx.shadowColor = 'rgba(110, 62, 8, 0.35)';
-      ctx.shadowBlur = cs * 0.08 * this.layout.dpr;
-      ctx.shadowOffsetY = cs * 0.02 * this.layout.dpr;
-      // Nestle prominently along the bottom pearl rim directly under the exit column.
-      ctx.drawImage(arrow, cx - sz / 2, base - sz * 0.2 + bob, sz, sz);
+      ctx.shadowBlur = cs * 0.06 * this.layout.dpr;
+      ctx.shadowOffsetY = cs * 0.015 * this.layout.dpr;
+      ctx.drawImage(arrow, cx - sz / 2, base + cs * 0.165 - sz / 2 + bob, sz, sz);
       ctx.restore();
       return;
     }

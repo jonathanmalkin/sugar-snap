@@ -95,8 +95,7 @@ export function SagaMap({ save, reducedMotion, onPlayLevel, onPlayZen, onOpenSet
             const sign = layout.signs[c];
             const chapterStars = chapter.levelIds.reduce((n, id) => n + (save.levels[id]?.stars ?? 0), 0);
             const chapterMax = chapter.levelIds.length * 3;
-            const firstId = chapter.levelIds[0] ?? 1;
-            const lockedChapter = firstId > highest;
+            const lockedChapter = false;
             const accent = { '--ch-accent': chapter.accentColor } as CSSProperties;
 
             return (
@@ -139,10 +138,10 @@ export function SagaMap({ save, reducedMotion, onPlayLevel, onPlayZen, onOpenSet
                   if (!node || !level) return null;
                   const progress = save.levels[id];
                   const stars = progress?.stars ?? 0;
-                  const unlocked = id <= highest;
+                  const unlocked = true;
                   const isCurrent = id === highest;
                   const completed = progress?.completed ?? false;
-                  const state = !unlocked ? 'locked' : isCurrent ? 'current' : completed ? 'done' : 'open';
+                  const state = isCurrent ? 'current' : completed ? 'done' : 'open';
                   return (
                     <button
                       key={id}

@@ -40,6 +40,14 @@ describe('25-level Saga integration with engine', () => {
         expect(jellyObj.completed).toBe(false);
       }
 
+      // Every ingredient level exits across the entire playable bottom row so donuts can never get trapped
+      if (level.ingredientSpawns && level.ingredientSpawns.length > 0) {
+        const bottomRow = state.grid[state.grid.length - 1];
+        for (const cell of bottomRow) {
+          if (cell.playable) expect(cell.isExit).toBe(true);
+        }
+      }
+
       // Executing the first suggested valid move succeeds and updates state cleanly
       const first = moves[0];
       const res = executeSwap(state, first.from, first.to, { rng });

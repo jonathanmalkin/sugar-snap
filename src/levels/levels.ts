@@ -209,9 +209,9 @@ export const LEVELS: LevelDef[] = [
       '.......',
       '.......',
       '.......',
-      '...E...',
+      'EEEEEEE',
     ], { ingredientSpawns: [spawn('cherry', 1, [3])],
-      tutorialHint: 'Clear candies below a frosted donut to guide it down to a golden exit arrow.' }),
+      tutorialHint: 'Clear candies below a frosted donut to drop it off the bottom edge.' }),
   level(17, 'Frosted Hollow', 'Two paths to the baskets', 4, 24, [1600, 4000, 7500],
     [ingredients('cherry', 2)], [
       '........',
@@ -221,9 +221,9 @@ export const LEVELS: LevelDef[] = [
       '....L...',
       '...L....',
       '........',
-      '..E..E..',
+      'EEEEEEEE',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 5])],
-      tutorialHint: 'Match an icing-locked candy in place to break its frosted lock.' }),
+      tutorialHint: 'Match a locked candy in place to free it, and drop both donuts off the bottom.' }),
   level(18, 'Paired Baskets', 'Two donuts side by side', 4, 26, [1800, 4300, 8000],
     [ingredients('cherry', 2)], [
       '.........',
@@ -234,7 +234,7 @@ export const LEVELS: LevelDef[] = [
       '..L...L..',
       '....L....',
       '.........',
-      '..E...E..',
+      'EEEEEEEEE',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
   level(19, 'Orchard Glaze', 'A jelly lining in the baskets', 4, 28, [2000, 4700, 8600],
     [ingredients('cherry', 2), jelly(14)], [
@@ -246,7 +246,7 @@ export const LEVELS: LevelDef[] = [
       '..j.L.j..',
       '...jjj...',
       '....j....',
-      '..e...e..',
+      'EEeEEEeEE',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
   level(20, 'Harvest Gate', 'Three donuts through the icing', 4, 30, [2400, 5300, 9600],
     [ingredients('cherry', 3), colorOrder('orange', 24)], [
@@ -258,7 +258,7 @@ export const LEVELS: LevelDef[] = [
       '...L.L...',
       '.L..L..L.',
       '.........',
-      '..E.E.E..',
+      'EEEEEEEEE',
     ], { ingredientSpawns: [spawn('cherry', 3, [2, 4, 6])] }),
 
   // Truffle Palace
@@ -306,7 +306,7 @@ export const LEVELS: LevelDef[] = [
       '..j.L.j..',
       '..jjjjj..',
       '...j.j...',
-      '..e...e..',
+      'EEeEEEeEE',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
   level(25, 'The Gilded Truffle', 'The chocolatier’s final course', 4, 32, [3000, 6800, 12000],
     [jelly(23), ingredients('cherry', 2), colorOrder('red', 34)], [
@@ -318,7 +318,7 @@ export const LEVELS: LevelDef[] = [
       '.C.jjj.C.',
       '..jjjjj..',
       '.jj...jj.',
-      '..e...e..',
+      'EEeEEEeEE',
     ], { ingredientSpawns: [spawn('cherry', 2, [2, 6])] }),
 ]
 
