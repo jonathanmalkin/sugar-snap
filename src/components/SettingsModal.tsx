@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
+import { MUSIC_TRACKS, type MusicSelection } from '../audio/soundTypes';
 import type { UserSettings } from '../state/storageTypes';
 import { CandyIcon, type IconKind } from './CandyIcon';
 import { ModalShell } from './LevelModals';
@@ -122,7 +123,7 @@ export function SettingsModal({ settings, onChange, onReset, onClose }: Settings
           />
           <Toggle
             label="Background Music"
-            detail="Cozy marimba groove"
+            detail="4 studio tracks · tap ♪ mid-level to switch"
             icon="music"
             checked={settings.musicEnabled}
             onChange={(v) => onChange({ musicEnabled: v })}
@@ -133,6 +134,32 @@ export function SettingsModal({ settings, onChange, onReset, onClose }: Settings
             disabled={!settings.musicEnabled}
             onChange={(v) => onChange({ musicVolume: v })}
           />
+          <div className={`music-picker${settings.musicEnabled ? '' : ' is-disabled'}`} role="radiogroup" aria-label="Music track">
+            {(
+              [
+                { id: 'auto' as MusicSelection, label: 'Auto Rotate' },
+                ...MUSIC_TRACKS.map((t) => ({ id: t.id as MusicSelection, label: t.label })),
+              ] as const
+            ).map((opt) => {
+              const active = settings.musicTrack === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  disabled={!settings.musicEnabled}
+                  className={`music-chip${active ? ' is-active' : ''}`}
+                  onClick={() => onChange({ musicTrack: opt.id })}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="music-credit">
+            Music by Kevin MacLeod (incompetech.com) · CC BY 4.0
+          </p>
         </section>
 
         <section className="settings__group" aria-label="Accessibility">

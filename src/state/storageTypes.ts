@@ -1,3 +1,4 @@
+import type { MusicSelection } from '../audio/soundTypes';
 import type { BoosterType, Cell } from '../engine/types';
 
 export interface LevelProgress {
@@ -11,6 +12,7 @@ export interface UserSettings {
   musicEnabled: boolean;
   sfxVolume: number;
   musicVolume: number;
+  musicTrack: MusicSelection;
   colorblindMode: boolean;
   reducedMotion: boolean;
 }

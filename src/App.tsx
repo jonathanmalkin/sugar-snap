@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { createSoundEngine } from './audio';
-import type { ISoundEngine } from './audio/soundTypes';
+import { nextMusicTrack, resolveAutoTrack, type ISoundEngine, type MusicTrackId } from './audio/soundTypes';
 import type { BoosterType } from './engine/types';
 import { GameScreen, type LevelWinRecord } from './components/GameScreen';
 import { SagaMap } from './components/SagaMap';
@@ -39,6 +39,8 @@ export function App(): ReactElement {
   const [screen, setScreen] = useState<Screen>({ name: 'map' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  /** Mid-level track override while in Auto Rotate mode; clears when advancing to the next level. */
+  const [sessionTrackOverride, setSessionTrackOverride] = useState<MusicTrackId | null>(null);
 
   const commit = useCallback((next: PlayerSave) => {
     saveRef.current = next;
@@ -85,6 +87,13 @@ export function App(): ReactElement {
     });
   }, [sound, settings.sfxEnabled, settings.musicEnabled, settings.sfxVolume, settings.musicVolume]);
 
+  const activeMusicTrack: MusicTrackId =
+    sessionTrackOverride ?? (settings.musicTrack === 'auto' ? resolveAutoTrack(screen) : settings.musicTrack);
+
+  useEffect(() => {
+    sound.setMusicTrack(activeMusicTrack);
+  }, [sound, activeMusicTrack]);
+
   useEffect(() => {
     if (audioUnlocked && settings.musicEnabled) sound.startMusic();
     else sound.stopMusic();
@@ -112,12 +121,19 @@ export function App(): ReactElement {
   /** Map picks show the Intro sheet; Victory's Next Level passes `false` to flow straight in. */
   const playLevel = useCallback((levelId: number, showIntro = true) => {
     const target = Math.max(1, Math.min(levelId, MAX_LEVEL));
+    setSessionTrackOverride(null);
     setScreen({ name: 'play', levelId: target, showIntro });
   }, []);
 
-  const playZen = useCallback(() => setScreen({ name: 'zen' }), []);
+  const playZen = useCallback(() => {
+    setSessionTrackOverride(null);
+    setScreen({ name: 'zen' });
+  }, []);
 
-  const exitToMap = useCallback(() => setScreen({ name: 'map' }), []);
+  const exitToMap = useCallback(() => {
+    setSessionTrackOverride(null);
+    setScreen({ name: 'map' });
+  }, []);
 
   /* ---------- save mutations ---------- */
 
@@ -161,10 +177,38 @@ export function App(): ReactElement {
   }, []);
 
   const handleSettingsChange = useCallback((partial: Partial<UserSettings>) => {
+    if (partial.musicTrack !== undefined) setSessionTrackOverride(null);
     const { save: next } = mutateSave((latest) => ({ save: updateUserSettings(latest, partial), result: undefined }));
     saveRef.current = next;
     setSave(next);
   }, []);
+
+  const handleCycleMusicTrack = useCallback(() => {
+    sound.unlock();
+    setAudioUnlocked(true);
+    const cur = saveRef.current.settings;
+    if (!cur.musicEnabled) {
+      const { save: next } = mutateSave((latest) => ({
+        save: updateUserSettings(latest, { musicEnabled: true }),
+        result: undefined,
+      }));
+      saveRef.current = next;
+      setSave(next);
+      return;
+    }
+    const nextTrack = nextMusicTrack(activeMusicTrack);
+    if (cur.musicTrack === 'auto') {
+      setSessionTrackOverride(nextTrack);
+    } else {
+      setSessionTrackOverride(null);
+      const { save: next } = mutateSave((latest) => ({
+        save: updateUserSettings(latest, { musicTrack: nextTrack }),
+        result: undefined,
+      }));
+      saveRef.current = next;
+      setSave(next);
+    }
+  }, [sound, activeMusicTrack]);
 
   const handleReset = useCallback(() => {
     commit(resetPlayerSave());
@@ -200,6 +244,8 @@ export function App(): ReactElement {
           onStreakReset={handleStreakReset}
           onZenSnapshot={handleZenSnapshot}
           onZenReset={handleZenReset}
+          activeMusicTrack={activeMusicTrack}
+          onCycleMusicTrack={handleCycleMusicTrack}
         />
       )}
 

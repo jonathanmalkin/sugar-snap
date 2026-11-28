@@ -1,3 +1,4 @@
+import type { MusicSelection } from '../audio/soundTypes'
 import { ALL_CANDY_COLORS } from '../engine/types'
 import type { BoosterType, Cell, SpecialType } from '../engine/types'
 import { LEVELS } from '../levels/levels'
@@ -10,7 +11,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   sfxEnabled: true,
   musicEnabled: true,
   sfxVolume: 0.75,
-  musicVolume: 0.4,
+  musicVolume: 0.45,
+  musicTrack: 'auto',
   colorblindMode: false,
   reducedMotion: false,
 }
@@ -58,6 +60,14 @@ function volumeSetting(value: unknown, fallback: number): number {
     : fallback
 }
 
+const VALID_MUSIC_SELECTIONS: readonly MusicSelection[] = ['auto', 'funk', 'bossa', 'lounge', 'lofi']
+
+function musicTrackSetting(value: unknown, fallback: MusicSelection): MusicSelection {
+  return typeof value === 'string' && VALID_MUSIC_SELECTIONS.some((t) => t === value)
+    ? (value as MusicSelection)
+    : fallback
+}
+
 function mergeSettings(value: unknown, base: UserSettings): UserSettings {
   const settings = asRecord(value)
   return {
@@ -65,6 +75,7 @@ function mergeSettings(value: unknown, base: UserSettings): UserSettings {
     musicEnabled: booleanSetting(settings.musicEnabled, base.musicEnabled),
     sfxVolume: volumeSetting(settings.sfxVolume, base.sfxVolume),
     musicVolume: volumeSetting(settings.musicVolume, base.musicVolume),
+    musicTrack: musicTrackSetting(settings.musicTrack, base.musicTrack),
     colorblindMode: booleanSetting(settings.colorblindMode, base.colorblindMode),
     reducedMotion: booleanSetting(settings.reducedMotion, base.reducedMotion),
   }

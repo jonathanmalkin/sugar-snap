@@ -4168,3 +4168,85 @@ button.sugar-crush-banner {
 button.sugar-crush-banner:active {
   transform: translateX(-50%) scale(0.95);
 }
+
+/* ========== Studio Music Jukebox: mid-level switcher & Settings chips ========== */
+.music-switch-btn {
+  gap: 6px;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+.music-switch-btn__name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 108px;
+}
+
+.music-switch-btn.is-muted {
+  opacity: 0.65;
+}
+
+@media (min-aspect-ratio: 11/10) and (min-width: 760px) {
+  .game-nav {
+    flex-wrap: wrap;
+  }
+  .game-nav .music-switch-btn {
+    flex: 1 0 100%;
+    order: 4;
+    flex-direction: row;
+    min-height: 44px;
+    padding: 6px 14px;
+    justify-content: center;
+  }
+  .game-nav .music-switch-btn__name {
+    max-width: none;
+    font-size: 14px;
+  }
+}
+
+.music-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 2px 2px;
+}
+
+.music-picker.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.music-chip {
+  min-height: 38px;
+  padding: 6px 13px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid rgba(139, 90, 60, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--caramel-lo);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform var(--dur-1) var(--ease-out), background var(--dur-1), border-color var(--dur-1), color var(--dur-1);
+}
+
+.music-chip:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.music-chip.is-active {
+  background: linear-gradient(180deg, var(--berry-hi), var(--berry));
+  border-color: var(--berry-deep);
+  color: var(--white);
+  box-shadow: 0 2px 6px rgba(184, 30, 79, 0.28);
+}
+
+.music-credit {
+  margin: 4px 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--caramel);
+  opacity: 0.78;
+}

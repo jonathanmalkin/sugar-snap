@@ -1,5 +1,5 @@
 import type { PraiseWord, SpecialType } from '../engine/types';
-import type { ISoundEngine, SoundSettings } from './soundTypes';
+import { getMusicTrackMeta, type ISoundEngine, type MusicTrackId, type SoundSettings } from './soundTypes';
 
 /**
  * Sugar Snap procedural Web Audio studio.
@@ -58,44 +58,18 @@ const CASCADE_MIDI = [72, 74, 76, 79, 81, 84, 86, 88, 91, 93, 96] as const;
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const clamp01 = (v: number): number => clamp(Number.isFinite(v) ? v : 0, 0, 1);
 
-/** Music: gentle confectionery waltz, 3/4. Each bar: bass root + chord tones. */
-interface MusicBar {
-  bass: number;
-  chord: readonly [number, number, number];
+const TRACK_FADE_SEC = 0.22;
+
+function audioTrackUrl(track: MusicTrackId): string {
+  const base = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? './';
+  const prefix = base.endsWith('/') ? base : `${base}/`;
+  return `${prefix}audio/${getMusicTrackMeta(track).file}`;
 }
-
-const MUSIC_BARS: readonly MusicBar[] = [
-  { bass: 48, chord: [64, 67, 71] }, // Cmaj7
-  { bass: 45, chord: [64, 67, 72] }, // Am7
-  { bass: 41, chord: [65, 69, 72] }, // Fmaj7
-  { bass: 43, chord: [62, 67, 71] }, // G
-  { bass: 48, chord: [64, 67, 72] }, // C
-  { bass: 52, chord: [64, 67, 71] }, // Em7/C colour
-  { bass: 41, chord: [65, 69, 74] }, // F6/9
-  { bass: 43, chord: [62, 65, 71] }, // G7
-];
-
-/** Melody per bar: [beat, midi] pairs, beats 0..2 (null bars rest). */
-const MELODY: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [
-  [[0, 76], [2, 79]],
-  [[0, 81], [1.5, 79]],
-  [[0, 77], [2, 76]],
-  [[0, 74], [2, 79]],
-  [[0, 76], [1, 79], [2, 84]],
-  [[0, 83], [2, 79]],
-  [[0, 81], [1.5, 77], [2, 76]],
-  [[0, 74]],
-];
-
-const MUSIC_BPM = 92;
-const LOOKAHEAD_MS = 25;
-const SCHEDULE_AHEAD = 0.12;
 
 export class SoundEngine implements ISoundEngine {
   private ctx: AudioContext | null = null;
   private sfxBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
-  private musicFilter: BiquadFilterNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
   private settings: SoundSettings = { ...DEFAULT_SETTINGS };
@@ -104,9 +78,13 @@ export class SoundEngine implements ISoundEngine {
   private suspendPending: Promise<void> | null = null;
 
   private musicWanted = false;
-  private musicTimer: ReturnType<typeof setInterval> | null = null;
-  private musicNextTime = 0;
-  private musicBeat = 0;
+  private currentTrack: MusicTrackId = 'funk';
+  private activeSource: AudioBufferSourceNode | null = null;
+  private activeTrackGain: GainNode | null = null;
+  private activeTrackId: MusicTrackId | null = null;
+  private trackBuffers = new Map<MusicTrackId, AudioBuffer>();
+  private trackLoads = new Map<MusicTrackId, Promise<AudioBuffer | null>>();
+  private musicToken = 0;
 
   private lastPlayed = new Map<string, number>();
   private seekerStep = 0;
@@ -188,6 +166,12 @@ export class SoundEngine implements ISoundEngine {
     this.syncMusic();
   }
 
+  setMusicTrack(track: MusicTrackId): void {
+    if (this.currentTrack === track && this.activeTrackId === track) return;
+    this.currentTrack = track;
+    this.syncMusic();
+  }
+
   startMusic(): void {
     this.musicWanted = true;
     this.syncMusic();
@@ -201,7 +185,7 @@ export class SoundEngine implements ISoundEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.stopScheduler();
+    this.stopCurrentTrack(false);
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.onVisibility);
       document.removeEventListener('pointerdown', this.onGesture);
@@ -213,8 +197,9 @@ export class SoundEngine implements ISoundEngine {
     this.suspendPending = null;
     this.sfxBus = null;
     this.musicBus = null;
-    this.musicFilter = null;
     this.noiseBuffer = null;
+    this.trackBuffers.clear();
+    this.trackLoads.clear();
     this.lastPlayed.clear();
     if (ctx && ctx.state !== 'closed') {
       void ctx.close().catch(() => undefined);
@@ -253,13 +238,6 @@ export class SoundEngine implements ISoundEngine {
     sfxBus.gain.value = 0;
     musicBus.gain.value = 0;
 
-    // Soft warm filter on the music bus keeps the groove non-fatiguing.
-    const musicFilter = ctx.createBiquadFilter();
-    musicFilter.type = 'lowpass';
-    musicFilter.frequency.value = 3200;
-    musicFilter.Q.value = 0.5;
-
-    musicFilter.connect(musicBus);
     sfxBus.connect(compressor);
     musicBus.connect(compressor);
     compressor.connect(master);
@@ -274,7 +252,6 @@ export class SoundEngine implements ISoundEngine {
     this.ctx = ctx;
     this.sfxBus = sfxBus;
     this.musicBus = musicBus;
-    this.musicFilter = musicFilter;
     this.noiseBuffer = noise;
     this.applyGains();
     return true;
@@ -285,15 +262,7 @@ export class SoundEngine implements ISoundEngine {
     if (!ctx || this.disposed) return;
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     if (ctx.state !== 'running' && ctx.state !== 'closed') {
-      void ctx
-        .resume()
-        .then(() => {
-          // Keep the music clock from trying to catch up after a pause.
-          if (this.ctx && this.musicNextTime < this.ctx.currentTime) {
-            this.musicNextTime = this.ctx.currentTime + 0.05;
-          }
-        })
-        .catch(() => undefined);
+      void ctx.resume().catch(() => undefined);
     }
   }
 
@@ -783,77 +752,105 @@ export class SoundEngine implements ISoundEngine {
   }
 
   // ---------------------------------------------------------------------------
-  // Music: lookahead-scheduled marimba + pad waltz
+  // Studio MP3 Music Jukebox (gapless Web Audio buffer playback + crossfade)
   // ---------------------------------------------------------------------------
 
   private syncMusic(): void {
     this.applyGains();
     const shouldPlay = this.musicWanted && this.settings.musicEnabled && this.settings.musicVolume > 0;
     if (shouldPlay && this.ctx && this.unlocked && !this.disposed) {
-      this.startScheduler();
+      if (this.activeTrackId === this.currentTrack && this.activeSource) return;
+      void this.playTrack(this.currentTrack);
     } else if (!shouldPlay) {
-      // Let the 150ms gain ramp finish; scheduled notes then play into silence.
-      this.stopScheduler();
+      this.musicToken += 1;
+      this.stopCurrentTrack(true);
     }
   }
 
-  private startScheduler(): void {
+  private loadTrackBuffer(track: MusicTrackId): Promise<AudioBuffer | null> {
+    const cached = this.trackBuffers.get(track);
+    if (cached) return Promise.resolve(cached);
+    const existing = this.trackLoads.get(track);
+    if (existing) return existing;
     const ctx = this.ctx;
-    if (!ctx || this.musicTimer !== null) return;
-    this.musicNextTime = ctx.currentTime + 0.1;
-    this.musicBeat = 0;
-    this.musicTimer = setInterval(() => this.scheduleMusic(), LOOKAHEAD_MS);
-    this.scheduleMusic();
-  }
+    if (!ctx || typeof fetch === 'undefined') return Promise.resolve(null);
 
-  private stopScheduler(): void {
-    if (this.musicTimer !== null) {
-      clearInterval(this.musicTimer);
-      this.musicTimer = null;
-    }
-  }
-
-  private scheduleMusic(): void {
-    const ctx = this.ctx;
-    if (!ctx || ctx.state !== 'running') return;
-    const beatDur = 60 / MUSIC_BPM;
-    if (this.musicNextTime < ctx.currentTime - 0.2) this.musicNextTime = ctx.currentTime + 0.05;
-    while (this.musicNextTime < ctx.currentTime + SCHEDULE_AHEAD) {
-      this.scheduleBeat(this.musicBeat, this.musicNextTime, beatDur);
-      this.musicNextTime += beatDur;
-      this.musicBeat = (this.musicBeat + 1) % (MUSIC_BARS.length * 3 * 2);
-    }
-  }
-
-  private scheduleBeat(beatIndex: number, t: number, beatDur: number): void {
-    const dest = this.musicFilter;
-    if (!dest) return;
-    const barIdx = Math.floor(beatIndex / 3);
-    const bar = MUSIC_BARS[barIdx % MUSIC_BARS.length];
-    const beatInBar = beatIndex % 3;
-    const secondPass = barIdx >= MUSIC_BARS.length;
-
-    if (beatInBar === 0) {
-      // Bass marimba on the downbeat.
-      this.marimba(mtof(bar.bass), t, 0.2, beatDur * 1.6, dest);
-      // Soft pad for the bar.
-      bar.chord.forEach((m, i) => {
-        this.tone({ freq: mtof(m - 12), t, dur: beatDur * 3.2, gain: 0.035, type: 'triangle', attack: beatDur * 0.9, detune: i % 2 ? 6 : -6, lowpass: 1100, dest });
+    const pending = fetch(audioTrackUrl(track))
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((arr) => ctx.decodeAudioData(arr))
+      .then((buf) => {
+        this.trackBuffers.set(track, buf);
+        this.trackLoads.delete(track);
+        return buf;
+      })
+      .catch(() => {
+        this.trackLoads.delete(track);
+        return null;
       });
-    } else {
-      // Waltz "oom-pah-pah": light chord taps on beats 2 and 3.
-      bar.chord.forEach((m, i) => this.marimba(mtof(m), t + i * 0.008, 0.045, beatDur * 0.7, dest));
-    }
+    this.trackLoads.set(track, pending);
+    return pending;
+  }
 
-    // Melody, varied on the second pass.
-    const melody = MELODY[barIdx % MELODY.length];
-    for (const [beat, midi] of melody) {
-      if (beat < beatInBar || beat >= beatInBar + 1) continue;
-      const nt = t + (beat - beatInBar) * beatDur;
-      // Second pass lifts every fourth bar's downbeat an octave for gentle variety.
-      const m = secondPass && beat === 0 && barIdx % 4 === 1 ? midi + 12 : midi;
-      this.marimba(mtof(m), nt, 0.08, beatDur * 1.2, dest);
-      if (secondPass) this.tone({ freq: mtof(m) * 2, t: nt, dur: 0.3, gain: 0.015, type: 'sine', attack: 0.002, dest });
+  private async playTrack(track: MusicTrackId): Promise<void> {
+    const token = ++this.musicToken;
+    const buf = await this.loadTrackBuffer(track);
+    if (!buf || this.disposed || token !== this.musicToken) return;
+    const ctx = this.ctx;
+    const bus = this.musicBus;
+    if (!ctx || !bus) return;
+    const shouldPlay = this.musicWanted && this.settings.musicEnabled && this.settings.musicVolume > 0;
+    if (!shouldPlay) return;
+
+    this.stopCurrentTrack(true);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(SILENT, now);
+    gain.gain.linearRampToValueAtTime(1, now + TRACK_FADE_SEC);
+
+    src.connect(gain);
+    gain.connect(bus);
+    src.start(now);
+
+    this.activeSource = src;
+    this.activeTrackGain = gain;
+    this.activeTrackId = track;
+  }
+
+  private stopCurrentTrack(fade: boolean): void {
+    const src = this.activeSource;
+    const gain = this.activeTrackGain;
+    this.activeSource = null;
+    this.activeTrackGain = null;
+    this.activeTrackId = null;
+    if (!src) return;
+    const ctx = this.ctx;
+    if (fade && gain && ctx && ctx.state === 'running') {
+      const now = ctx.currentTime;
+      try {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(Math.max(SILENT, gain.gain.value), now);
+        gain.gain.linearRampToValueAtTime(SILENT, now + TRACK_FADE_SEC);
+        src.stop(now + TRACK_FADE_SEC + 0.03);
+      } catch {
+        try {
+          src.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+    } else {
+      try {
+        src.stop();
+      } catch {
+        /* ignore */
+      }
     }
   }
 }

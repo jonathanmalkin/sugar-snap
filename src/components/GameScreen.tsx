@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react';
-import type { ISoundEngine } from '../audio/soundTypes';
+import { getMusicTrackMeta, type ISoundEngine, type MusicTrackId } from '../audio/soundTypes';
 import { applyBakersGift, createGameState, restoreZenState } from '../engine';
 import type { BoosterType, GameState, ObjectiveProgress } from '../engine/types';
 import { getChapterById, getLevelById, LEVELS, ZEN_CHAPTER, ZEN_LEVEL } from '../levels';
@@ -59,6 +59,10 @@ export interface GameScreenProps {
   onZenSnapshot: (zen: ZenSaveState) => void;
   /** Zen: New Board clears the saved session. */
   onZenReset: () => void;
+  /** Currently active studio music track for this level. */
+  activeMusicTrack: MusicTrackId;
+  /** 1-tap mid-level track switcher. */
+  onCycleMusicTrack: () => void;
 }
 
 type ModalState =
@@ -100,7 +104,20 @@ function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
 }
 
 export function GameScreen(props: GameScreenProps): ReactElement {
-  const { mode, levelId, save, sound, showIntro, overlayOpen, onExitToMap, onOpenSettings, onPlayLevel } = props;
+  const {
+    mode,
+    levelId,
+    save,
+    sound,
+    showIntro,
+    overlayOpen,
+    onExitToMap,
+    onOpenSettings,
+    onPlayLevel,
+    activeMusicTrack,
+    onCycleMusicTrack,
+  } = props;
+  const trackMeta = getMusicTrackMeta(activeMusicTrack);
   const isZen = mode === 'zen';
   const level = useMemo(() => (isZen ? ZEN_LEVEL : getLevelById(levelId)), [isZen, levelId]);
   const chapter = useMemo(() => (isZen ? ZEN_CHAPTER : getChapterById(level.chapterId)), [isZen, level]);
@@ -425,6 +442,22 @@ export function GameScreen(props: GameScreenProps): ReactElement {
               <span className="icon-btn__label">Retry</span>
             </button>
           )}
+          <button
+            type="button"
+            className={`icon-btn music-switch-btn${save.settings.musicEnabled ? '' : ' is-muted'}`}
+            onClick={onCycleMusicTrack}
+            aria-label={
+              save.settings.musicEnabled
+                ? `Music: ${trackMeta.label}. Tap to switch track`
+                : 'Music off. Tap to turn music on'
+            }
+            title={save.settings.musicEnabled ? `${trackMeta.label} — tap for next track` : 'Turn music on'}
+          >
+            <CandyIcon kind="music" size={22} />
+            <span className="music-switch-btn__name">
+              {save.settings.musicEnabled ? trackMeta.label : 'Music Off'}
+            </span>
+          </button>
           <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="Settings">
             <CandyIcon kind="settings" size={24} />
             <span className="icon-btn__label">Settings</span>
