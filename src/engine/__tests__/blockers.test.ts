@@ -111,8 +111,26 @@ describe('licorice locks', () => {
   it('a blast breaks the lock without clearing the candy', () => {
     const s = stateOf(['bh r g:L y', 'g y b r']);
     const res = applyHammerBooster(s, p(0, 0), rng());
-    expect(res.phases[0].gridAfter[0][2]).toMatchObject({ locked: false });
+    expect(res.phases[0].gridAfter[0][2]).toMatchObject({ locked: false, lockLayers: 0 });
     expect(res.phases[0].gridAfter[0][2].candy?.color).toBe('green');
+  });
+
+  it('3-tier stacked lock steps cleanly from 3 (Gold) -> 2 (Cocoa) -> 1 (Ice) -> free', () => {
+    let s = stateOf(['r:K g b', 'g b y', 'b y g']);
+    const lockedId = s.grid[0][0].candy!.id;
+    expect(s.grid[0][0]).toMatchObject({ locked: true, lockLayers: 3 });
+
+    s = applyHammerBooster(s, p(0, 0), rng()).state;
+    expect(s.grid[0][0]).toMatchObject({ locked: true, lockLayers: 2 });
+    expect(s.grid[0][0].candy?.id).toBe(lockedId);
+
+    s = applyHammerBooster(s, p(0, 0), rng()).state;
+    expect(s.grid[0][0]).toMatchObject({ locked: true, lockLayers: 1 });
+    expect(s.grid[0][0].candy?.id).toBe(lockedId);
+
+    s = applyHammerBooster(s, p(0, 0), rng()).state;
+    expect(s.grid[0][0]).toMatchObject({ locked: false, lockLayers: 0 });
+    expect(s.grid[0][0].candy?.id).toBe(lockedId);
   });
 });
 

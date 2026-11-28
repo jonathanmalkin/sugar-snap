@@ -235,7 +235,7 @@ function drawGlow(ctx: Ctx, S: number, color: string): void {
 /* Atlas                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export type BlockerSpriteKind = 'frosting-1' | 'frosting-2' | 'frosting-3' | 'locked' | 'chocolate';
+export type BlockerSpriteKind = 'frosting-1' | 'frosting-2' | 'frosting-3' | 'locked' | 'locked-1' | 'locked-2' | 'locked-3' | 'chocolate';
 
 export function candySpriteKey(candy: Candy): string {
   if (candy.ingredient) return `ing:${candy.ingredient}`;
@@ -258,6 +258,9 @@ function blockerSpec(kind: BlockerSpriteKind): PbrSpriteSpec {
     case 'frosting-3':
       return { kind: 'frosting', layers: 3 };
     case 'locked':
+    case 'locked-1':
+    case 'locked-2':
+    case 'locked-3':
       return { kind: 'locked' };
     case 'chocolate':
       return { kind: 'chocolate' };
@@ -315,7 +318,10 @@ const SPRITE_FILES: Record<string, string> = {
   'blk:frosting-2': 'frosting-2.png',
   'blk:frosting-3': 'frosting-3.png',
   'blk:chocolate': 'chocolate.png',
-  'blk:locked': 'lock-overlay.png',
+  'blk:locked': 'lock-1.png',
+  'blk:locked-1': 'lock-1.png',
+  'blk:locked-2': 'lock-2.png',
+  'blk:locked-3': 'lock-3.png',
   'jelly:1': 'jelly-1.png',
   'jelly:2': 'jelly-1.png',
   'exit-arrow': 'exit-arrow.png',
@@ -523,6 +529,10 @@ export class CandySpriteAtlas {
     return this.getBlocker(`frosting-${layers}` as BlockerSpriteKind);
   }
 
+  getLock(layers: 1 | 2 | 3 = 1): HTMLCanvasElement {
+    return this.getBlocker(`locked-${layers}` as BlockerSpriteKind);
+  }
+
   getJelly(layers: 1 | 2): HTMLCanvasElement {
     return this.bakePbr(`jelly:${layers}`, { kind: 'jelly', layers: 1 });
   }
@@ -549,7 +559,11 @@ export class CandySpriteAtlas {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     // Slightly oversize blockers/jelly/locks so tiles sit flush; candies keep natural padding.
-    const fullBleed = key.startsWith('jelly:') || key === 'blk:locked' || key.startsWith('blk:frosting-') || key === 'blk:chocolate';
+    const fullBleed =
+      key.startsWith('jelly:') ||
+      key.startsWith('blk:locked') ||
+      key.startsWith('blk:frosting-') ||
+      key === 'blk:chocolate';
     const inset = fullBleed ? this.px * 0.015 : 0;
     ctx.drawImage(img, inset, inset, this.px - inset * 2, this.px - inset * 2);
     this.cache.set(key, canvas);

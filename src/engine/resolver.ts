@@ -199,8 +199,10 @@ export function damageCell(ctx: ResolveContext, wave: Wave, pos: GridPos, source
   if (cell.locked) {
     if (!wave.blockerHit.has(k)) {
       wave.blockerHit.add(k);
-      cell.locked = false;
-      wave.events.push({ type: 'blocker-hit', pos: { ...pos }, blocker: 'lock', remaining: 0 });
+      const nextLayers = Math.max(0, (cell.lockLayers ?? 1) - 1) as 0 | 1 | 2;
+      cell.lockLayers = nextLayers;
+      cell.locked = nextLayers > 0;
+      wave.events.push({ type: 'blocker-hit', pos: { ...pos }, blocker: 'lock', remaining: nextLayers });
     }
     return;
   }
@@ -569,6 +571,7 @@ function fireSecondStages(ctx: ResolveContext): void {
     const cell = getCell(grid, pos)!;
     cell.candy = null;
     cell.locked = false;
+    cell.lockLayers = 0;
     wave.hit.add(posKey(pos));
     wave.activated.add(candy.id);
     reduceJelly(ctx, wave, cell);

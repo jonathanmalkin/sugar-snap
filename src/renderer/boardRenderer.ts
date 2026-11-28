@@ -577,11 +577,14 @@ export class BoardRenderer {
     for (const v of frame.dying) this.drawCandy(ctx, v, frame, true);
     ctx.restore();
 
-    // Licorice locks over candies.
+    // Candy locks over candies (1 = Ice Cube, 2 = Airy Cocoa Cage, 3 = Gold Padlock).
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cell = grid[r][c];
-        if (cell.playable && cell.locked) ctx.drawImage(this.atlas.getBlocker('locked'), ox + c * cs, oy + r * cs, cs, cs);
+        if (cell.playable && cell.locked) {
+          const tier = (cell.lockLayers && cell.lockLayers >= 1 && cell.lockLayers <= 3 ? cell.lockLayers : 1) as 1 | 2 | 3;
+          ctx.drawImage(this.atlas.getLock(tier), ox + c * cs, oy + r * cs, cs, cs);
+        }
       }
     }
 

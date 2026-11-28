@@ -139,6 +139,15 @@ function parseLayout(level: LevelDef): Cell[][] {
           break;
         case 'L':
           cell.locked = true;
+          cell.lockLayers = 1;
+          break;
+        case 'M':
+          cell.locked = true;
+          cell.lockLayers = 2;
+          break;
+        case 'K':
+          cell.locked = true;
+          cell.lockLayers = 3;
           break;
         case 'C':
           cell.chocolate = true;
@@ -505,7 +514,16 @@ export function parseBoardSpec(spec: string[]): Cell[][] {
         const [body, flags = ''] = token.split(':');
         if (flags.includes('j')) cell.jelly = 1;
         if (flags.includes('J')) cell.jelly = 2;
-        if (flags.includes('L')) cell.locked = true;
+        if (flags.includes('K')) {
+          cell.locked = true;
+          cell.lockLayers = 3;
+        } else if (flags.includes('M')) {
+          cell.locked = true;
+          cell.lockLayers = 2;
+        } else if (flags.includes('L')) {
+          cell.locked = true;
+          cell.lockLayers = 1;
+        }
         if (flags.includes('E')) cell.isExit = true;
         if (body === '#') cell.playable = false;
         else if (body === 'X') cell.chocolate = true;

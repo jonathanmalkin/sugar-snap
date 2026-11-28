@@ -1132,10 +1132,25 @@ export class GameController {
               this.particles.jellyBurst(c.x, c.y, '#e9e0ff', 4, 0.7, cs);
               this.particles.sparkle(c.x, c.y, 5, '#ffffff', cs * 0.4, cs);
             } else if (e.blocker === 'lock') {
-              if (cell) cell.locked = e.remaining > 0;
+              const rem = Math.max(0, Math.min(3, e.remaining)) as 0 | 1 | 2 | 3;
+              if (cell) {
+                cell.lockLayers = rem;
+                cell.locked = rem > 0;
+              }
               this.sound.playLockBreak();
-              this.particles.jellyBurst(c.x, c.y, '#3a1a2c', 10, 1.1, cs);
-              this.particles.sparkle(c.x, c.y, 4, '#ffc4e4', cs * 0.4, cs);
+              if (rem === 2) {
+                // Gold Padlock shattered -> golden sparks
+                this.particles.jellyBurst(c.x, c.y, '#ffd45c', 10, 1.1, cs);
+                this.particles.sparkle(c.x, c.y, 6, '#fff2b0', cs * 0.45, cs);
+              } else if (rem === 1) {
+                // Cocoa Cage shattered -> warm cocoa shards
+                this.particles.jellyBurst(c.x, c.y, '#6e3d22', 10, 1.1, cs);
+                this.particles.sparkle(c.x, c.y, 5, '#e8b88a', cs * 0.4, cs);
+              } else {
+                // Ice Cube shattered -> crisp crystal ice shards
+                this.particles.jellyBurst(c.x, c.y, '#8ce8ff', 11, 1.15, cs);
+                this.particles.sparkle(c.x, c.y, 6, '#ffffff', cs * 0.45, cs);
+              }
             } else {
               if (cell) cell.chocolate = e.remaining > 0;
               this.crunch();
@@ -1704,7 +1719,10 @@ export class GameController {
     if (cell.candy && !cell.locked) {
       if (!wasSelected && !pendingTapSwap) this.select(pos);
     } else {
-      if (cell.candy && cell.locked) this.wobble(pos);
+      if (cell.candy && cell.locked) {
+        this.wobble(pos);
+        this.sound.playInvalidSwap();
+      }
       this.deselect();
       return;
     }

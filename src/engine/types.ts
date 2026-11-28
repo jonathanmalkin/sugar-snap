@@ -34,6 +34,8 @@ export interface Cell {
   jelly: 0 | 1 | 2;
   frosting: 0 | 1 | 2 | 3;
   locked: boolean;
+  /** Optional multi-tier lock strength (1 = Ice, 2 = Cocoa, 3 = Gold Padlock). Defaults to 1 when `locked` is true. */
+  lockLayers?: 0 | 1 | 2 | 3;
   chocolate: boolean;
   isExit: boolean;
   candy: Candy | null;
